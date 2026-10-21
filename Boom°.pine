@@ -4,7 +4,7 @@
 //@version=6
 
 // ----------------------------------------------------------------------------
-indicator('Fractal PO3 Sequence°', shorttitle = 'Fractal PO3 Seq°', overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
+indicator('Boom°', shorttitle = 'Boom°', overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 5000)
 import Gregorius_XV/GXVAssetCorrelationUtils/1 as AC
 import Gregorius_XV/GXVUtils/12 as QTU
 import Gregorius_XV/QTSmtFillEngine/13 as SMTF
@@ -32,8 +32,7 @@ type Candle
     // HTF panel SMT / PSP flags (recomputed on the last bar)
     bool smt_bull = false
     bool smt_bear = false
-    bool psp_bull = false
-    bool psp_bear = false
+    bool psp = false       // body closes opposite in colour to the pair 1 candle
 
 // One pair candle aligned to an HTF panel candle (same open time) — HTF Profiler HtfPairCandle
 type HtfPairCandle
@@ -300,10 +299,13 @@ alerts_enabled_input            = input.bool(true, 'Alerts?', group=group_genera
 settings.alerts_enabled         := alerts_enabled_input
 settings.sweep_history          := input.int(4, 'History        ', minval=0, group=group_general, inline='history')
 settings.sweep_visible_only     := input.bool(true, '', tooltip='Number of historical setups to show:\n\n☑ ON: Setups on visible HTF candles always shown. This count adds older setups that scrolled away.\n\n☐ OFF: Only show this many setups total.', inline='history', group=group_general)
-fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Intraday', 'Scalp', 'Swing', 'Custom', '1s-1m', '15s-5m', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, tooltip='Automatic: Standard multi-timeframe alignment.\nIntraday: Optimised for same-day structure.\nScalp: Tight micro-structure context.\nSwing: Broad market structure.\n\nThe model runs on this Fractal HTF and is drawn on the HTF panel with the same timeframe.')
+seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: 1m chart → 1H model, other charts → 4H. C3 SETUP lanes on the table.\n\nClassic: model, C-labels and C2 QUALITY follow the Fractal pairing; the C2 CISD is on the Fractal LTF. No C3 SETUP.')
+bool seq_classic                = seq_mode_input == 'Classic'
+fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1s-1m', '15s-5m', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
 settings.fractal_mode           := fractal_mode_input
-settings.custom_ltf             := input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general)
-custom_htf_input                = input.timeframe('60','-', inline='custom_tf', group=group_general)
+custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
+settings.custom_ltf             := custom_ltf_input
+custom_htf_input                = input.timeframe('60','-', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
 settings.bias                   := input.string('Neutral', 'Bias', options=['Neutral', 'Bullish', 'Bearish'], group=group_general, tooltip='Filter setups by direction:\n\nNeutral: Show both bullish and bearish setups.\nBullish: Only show bullish setups (low sweeps).\nBearish: Only show bearish setups (high sweeps).')
 
 getHigherTF() =>
@@ -323,55 +325,9 @@ getHigherTF() =>
         "1M" => "12M"
         => ""
 
-// ============================================================================
-// Intraday / Scalp / Swing Fractal Modes
-// ============================================================================
-
-getIntradayHTF() =>
-    int s = timeframe.in_seconds()
-    switch
-        s == 60   => '15'
-        s == 180  => '30'
-        s == 300  => '60'
-        s == 900  => '240'
-        s == 1800 => '240'
-        s == 3600 => '1D'
-        s == 7200 => '1D'
-        s == 14400 => '1D'
-        s == 86400 => '1W'
-        s < 3600  => '60'
-        => '1D'
-
-getScalpHTF() =>
-    int s = timeframe.in_seconds()
-    switch
-        s <= 60   => '5'
-        s <= 300  => '15'
-        s <= 900  => '60'
-        s <= 3600 => '240'
-        => '1D'
-
-getSwingHTF() =>
-    int s = timeframe.in_seconds()
-    bool is1W = timeframe.isweekly and timeframe.multiplier == 1
-    switch
-        s == 300   => '60'
-        s == 900   => '240'
-        s == 1800  => '240'
-        s == 3600  => '1D'
-        s == 7200  => '1D'
-        s == 14400 => '1W'
-        s == 86400 => '1W'
-        is1W       => '1M'
-        s < 3600   => '240'
-        => '1D'
-
 getFractalHTF() =>
     switch fractal_mode_input
         "Automatic" => getHigherTF()
-        "Intraday" => getIntradayHTF()
-        "Scalp" => getScalpHTF()
-        "Swing" => getSwingHTF()
         "Custom" => custom_htf_input
         "1s-1m" => "1"
         "15s-5m" => "5"
@@ -384,8 +340,23 @@ getFractalHTF() =>
         "1D-1M" => "1M"
         => getHigherTF()
 
-// HTF Candles settings
-string model_tf = getFractalHTF()
+// Fractal LTF (Classic: the C2 CISD timeframe). Automatic → the chart timeframe.
+getFractalLTF() =>
+    switch fractal_mode_input
+        "Custom" => custom_ltf_input
+        "1s-1m" => "1S"
+        "15s-5m" => "15S"
+        "1m-15m" => "1"
+        "3m-30m" => "3"
+        "5m-1H" => "5"
+        "15m-4H" => "15"
+        "1H-1D" => "60"
+        "4H-1W" => "240"
+        "1D-1M" => "1D"
+        => timeframe.period
+
+// HTF Candles settings — model: Classic = Fractal HTF, Boom = 1H on a 1m chart, else 4H
+string model_tf = seq_classic ? getFractalHTF() : timeframe.in_seconds() == 60 ? '60' : '240'
 htf.settings.htf := model_tf
 hide_candles_input             = input.bool(false, 'Hide Projection?', group = group_htf, inline='offset', tooltip='Hides all three HTF panels.')
 settings.hide_candles          := hide_candles_input
@@ -572,10 +543,7 @@ htf_bear_fvg_color              = input.color(#b22833, '', inline = 'htffvg', gr
 htf_smt_show                    = input.bool(true, 'Enable SMT?', inline = 'htf_smt', group = group_htf_feat, tooltip = 'SMT between consecutive HTF panel candles vs the SMT pairs: one symbol makes a higher high / lower low and the other does not. Hidden once a newer panel candle trades through the SMT extreme.')
 htf_smt_bull_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
 htf_smt_bear_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
-htf_psp_show                    = input.bool(true, 'Enable PSP?', inline = 'htf_psp', group = group_htf_feat, tooltip = 'PSP (GXV Equinox): an HTF SMT candle whose body closes opposite to the pair candle body.')
-htf_psp_bull_color              = input.color(#e65100, '', inline = 'htf_psp', group = group_htf_feat, active = htf_psp_show)
-htf_psp_bear_color              = input.color(#e65100, '', inline = 'htf_psp', group = group_htf_feat, active = htf_psp_show)
-htf_psp_display                 = input.string('Label', 'PSP Display', options = ['Label', 'Barcolor'], group = group_htf_feat, active = htf_psp_show)
+htf_psp_show                    = input.bool(true, 'Enable PSP?', group = group_htf_feat, tooltip = 'PSP: the C2 body closes opposite in colour to the pair 1 candle (MNQ → MES). A doji on either side is no PSP. Label: C2+PSP (panels; chart = model HTF).')
 
 // ============================================================================
 // SMT on chart — GXV SMT engine (HTF Profiler)
@@ -686,8 +654,8 @@ dash_bg_color_input              = input.color(#c2baae, 'Background', group = gr
 // Sequence table (4h / 1h PO3 sequence) — inputs
 // ============================================================================
 string group_seq                 = "Sequence Table  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-seq_show_input                   = input.bool(true, 'Show Sequence', group = group_seq, tooltip = '1m chart → 1H sequence (A: 15m → 5m, B: 15m → 1m)\nOther charts → 4H sequence (A: 1H → 5m, B: 30m → 3m)\nBias = latest valid C2 close (C2 + its LTF CISD).')
-seq_c3_only_input                = input.bool(true, 'Conditions: C3 Only', group = group_seq, active = seq_show_input, tooltip = 'On: lanes count only in C3. Off: in every candle after the C2.')
+seq_show_input                   = input.bool(true, 'Show Sequence', group = group_seq, tooltip = 'Boom: 1m chart → 1H sequence (A: 15m → 5m, B: 15m → 1m)\nOther charts → 4H sequence (A: 1H → 5m, B: 30m → 3m)\nClassic: Fractal HTF, C2 CISD on the Fractal LTF, no lanes.\nBias = latest valid C2 close (C2 + its LTF CISD).')
+seq_c3_only_input                = input.bool(true, 'Conditions: C3 Only', group = group_seq, active = seq_show_input and not seq_classic, tooltip = 'On: lanes count only in C3. Off: in every candle after the C2.')
 seq_vert_input                   = input.string('Bottom', '', options = ['Top', 'Middle', 'Bottom'], inline = 'seq_loc', group = group_seq, active = seq_show_input)
 seq_horz_input                   = input.string('Right', '', options = ['Left', 'Center', 'Right'], inline = 'seq_loc', group = group_seq, active = seq_show_input)
 seq_size_input                   = input.string(size.normal, 'Text', options = [size.tiny, size.small, size.normal], inline = 'seq_loc', group = group_seq, active = seq_show_input)
@@ -697,14 +665,14 @@ seq_row_bg_input                 = input.color(#f2f2f2, 'Rows', inline = 'seq_c1
 seq_lane_bg_input                = input.color(#dedede, 'Lane', inline = 'seq_c1', group = group_seq, active = seq_show_input)
 seq_text_input                   = input.color(#0f0f0f, 'Text', inline = 'seq_c2', group = group_seq, active = seq_show_input)
 seq_done_input                   = input.color(#388e3c, 'Done', inline = 'seq_c2', group = group_seq, active = seq_show_input)
-seq_watch_input                  = input.color(#f57f17, 'Watching', inline = 'seq_c2', group = group_seq, active = seq_show_input)
+seq_watch_input                  = input.color(#f57f17, 'Watching', inline = 'seq_c2', group = group_seq, active = seq_show_input and not seq_classic)
 seq_wait_input                   = input.color(#636363, 'Not yet', inline = 'seq_c2', group = group_seq, active = seq_show_input)
 seq_bull_input                   = input.color(#0c3299, 'Bull / Bear', inline = 'seq_c3', group = group_seq, active = seq_show_input)
 seq_bear_input                   = input.color(#b22833, '', inline = 'seq_c3', group = group_seq, active = seq_show_input)
 seq_cand_c3_input                = input.color(#388e3c, 'Candle: C3', inline = 'seq_c4', group = group_seq, active = seq_show_input)
 seq_cand_other_input             = input.color(#636363, 'Other', inline = 'seq_c4', group = group_seq, active = seq_show_input, tooltip = 'LIVE CANDLE: C3 / C4 / C5 after a valid C2 close, then WAITING C2. C3 that takes the C2 extreme against the bias → WAITING C2.')
 seq_chk_input                    = input.bool(true, 'Score Checklist', group = group_seq, active = seq_show_input, tooltip = 'Show the C2 QUALITY checklist.\nCISD in C2 +75 · inside 75% of C1 +5 · POI / SMT-Fill +10 · SMT +5 · POI + SMT +5\nLOW 75–80 · HIGH 85–90 · BOOM 95–100 · no CISD = INVALID')
-seq_grace_input                  = input.bool(false, 'C2 CISD in C3', group = group_seq, active = seq_show_input, tooltip = 'Accept the C2 CISD early in C3: 1H until :45, 4H within the first 3h.')
+seq_grace_input                  = input.bool(false, 'C2 CISD in C3', group = group_seq, active = seq_show_input and not seq_classic, tooltip = 'Accept the C2 CISD in the first 75% of C3 (1H: 45m, 4H: 3h).')
 seq_boom_input                   = input.color(#1b5e20, 'Grade: Boom', inline = 'seq_g', group = group_seq, active = seq_show_input)
 seq_high_input                   = input.color(#388e3c, 'High', inline = 'seq_g', group = group_seq, active = seq_show_input)
 seq_low_input                    = input.color(#f57f17, 'Low', inline = 'seq_g', group = group_seq, active = seq_show_input)
@@ -1830,36 +1798,39 @@ FindPairIdx(array<HtfPairCandle> pc, int ot) =>
                 break
     r
 
-ApplyPairSmt(array<Candle> src, int i, array<HtfPairCandle> pc, bool ready) =>
-    if ready and src.size() > i + 1
+ApplyPairSmt(array<Candle> src, int i, array<HtfPairCandle> pc, bool ready, bool psp) =>
+    if ready and src.size() > i
         Candle cur = src.get(i)
-        Candle prv = src.get(i + 1)
         int pi = FindPairIdx(pc, cur.o_time)
-        int ppi = FindPairIdx(pc, prv.o_time)
-        if pi >= 0 and ppi >= 0
+        if pi >= 0
             HtfPairCandle p = pc.get(pi)
-            HtfPairCandle pp = pc.get(ppi)
-            bool bull_smt = (cur.l < prv.l and p.l > pp.l) or (cur.l > prv.l and p.l < pp.l)
-            bool bear_smt = (cur.h > prv.h and p.h < pp.h) or (cur.h < prv.h and p.h > pp.h)
-            int cur_dir = cur.c > cur.o ? 1 : cur.c < cur.o ? -1 : 0
-            int pair_dir = p.c > p.o ? 1 : p.c < p.o ? -1 : 0
-            cur.smt_bull := cur.smt_bull or bull_smt
-            cur.smt_bear := cur.smt_bear or bear_smt
-            cur.psp_bull := cur.psp_bull or (bull_smt and cur_dir == 1 and pair_dir == -1)
-            cur.psp_bear := cur.psp_bear or (bear_smt and cur_dir == -1 and pair_dir == 1)
+            if psp
+                int cur_dir = cur.c > cur.o ? 1 : cur.c < cur.o ? -1 : 0
+                int pair_dir = p.c > p.o ? 1 : p.c < p.o ? -1 : 0
+                cur.psp := cur_dir != 0 and pair_dir != 0 and cur_dir != pair_dir
+            if src.size() > i + 1
+                Candle prv = src.get(i + 1)
+                int ppi = FindPairIdx(pc, prv.o_time)
+                if ppi >= 0
+                    HtfPairCandle pp = pc.get(ppi)
+                    cur.smt_bull := cur.smt_bull or (cur.l < prv.l and p.l > pp.l) or (cur.l > prv.l and p.l < pp.l)
+                    cur.smt_bear := cur.smt_bear or (cur.h > prv.h and p.h < pp.h) or (cur.h < prv.h and p.h > pp.h)
     0
 
 PanelFeatures(array<Candle> arr, array<HtfPairCandle> p1, array<HtfPairCandle> p2, bool ok1, bool ok2) =>
     for c in arr
         c.smt_bull := false
         c.smt_bear := false
-        c.psp_bull := false
-        c.psp_bear := false
-    if (htf_smt_show or htf_psp_show) and arr.size() >= 2
-        for i = 0 to arr.size() - 2
-            ApplyPairSmt(arr, i, p1, ok1)
-            ApplyPairSmt(arr, i, p2, ok2)
+        c.psp := false
+    if (htf_smt_show or htf_psp_show) and arr.size() >= 1
+        for i = 0 to arr.size() - 1
+            ApplyPairSmt(arr, i, p1, ok1, htf_psp_show)
+            ApplyPairSmt(arr, i, p2, ok2, false)
     0
+
+// '+PSP' for the C2 label of candle i
+PspTag(array<Candle> arr, int i) =>
+    htf_psp_show and i >= 0 and i < arr.size() and arr.get(i).psp ? '+PSP' : ''
 
 // A newer panel candle trading through the SMT candle's extreme invalidates it
 PanelSmtInvalid(array<Candle> arr, int i, bool bull) =>
@@ -1872,16 +1843,9 @@ PanelSmtInvalid(array<Candle> arr, int i, bool bull) =>
             inv := inv or (bull ? nw.l < lvl : nw.h > lvl)
     inv
 
-PanelPspActive(array<Candle> arr, int i, bool bull) =>
-    Candle c = arr.get(i)
-    htf_psp_show and BiasOk(bull ? 1 : -1) and (bull ? c.psp_bull : c.psp_bear) and not PanelSmtInvalid(arr, i, bull)
-
 PanelBodyColor(array<Candle> arr, int i) =>
     Candle c = arr.get(i)
-    bool barc = htf_psp_display == 'Barcolor'
-    bool pb = barc and PanelPspActive(arr, i, true)
-    bool pr = barc and PanelPspActive(arr, i, false)
-    pb and not pr ? QTU.paneBodyPaint(htf_psp_bull_color, chart.bg_color) : pr and not pb ? QTU.paneBodyPaint(htf_psp_bear_color, chart.bg_color) : c.c > c.o ? settings.bull_body : settings.bear_body
+    c.c > c.o ? settings.bull_body : settings.bear_body
 
 // Positions for a preview panel (oldest left, newest right)
 PanelPositions(array<Candle> arr, int x_start) =>
@@ -1916,7 +1880,7 @@ DrawPanelFvgs(array<Candle> arr, string tf) =>
                 bin.boxes.push(box.new(c2.candle_right, c1.l, fvg_right, c3.h, color_transparent, 1, bgcolor = color.new(htf_bear_fvg_color, 90)))
     0
 
-// SMT lines between consecutive panel candles + PSP markers
+// SMT lines between consecutive panel candles
 DrawPanelSmtPsp(array<Candle> arr) =>
     int n = arr.size()
     if htf_smt_show and n >= 2
@@ -1927,14 +1891,6 @@ DrawPanelSmtPsp(array<Candle> arr) =>
                 bin.lines.push(line.new(pv.wick_x, pv.h, c.wick_x, c.h, xloc = xloc.bar_index, color = htf_smt_bear_color, style = line.style_solid, width = 1))
             if line.all.size() < 490 and BiasOk(1) and c.smt_bull and not PanelSmtInvalid(arr, i, true)
                 bin.lines.push(line.new(pv.wick_x, pv.l, c.wick_x, c.l, xloc = xloc.bar_index, color = htf_smt_bull_color, style = line.style_solid, width = 1))
-    if htf_psp_show and htf_psp_display == 'Label' and n > 0
-        for i = 0 to n - 1
-            Candle c = arr.get(i)
-            float pad = math.max(math.abs(c.h - c.l) * 0.06, syminfo.mintick * 12.0) * 0.65
-            if label.all.size() < 490 and PanelPspActive(arr, i, true)
-                bin.labels.push(label.new(c.wick_x, c.l - pad, '▲', xloc = xloc.bar_index, color = color_transparent, style = label.style_none, textcolor = htf_psp_bull_color, size = size.small))
-            if label.all.size() < 490 and PanelPspActive(arr, i, false)
-                bin.labels.push(label.new(c.wick_x, c.h + pad, '▼', xloc = xloc.bar_index, color = color_transparent, style = label.style_none, textcolor = htf_psp_bear_color, size = size.small))
     0
 
 // ============================================================================
@@ -2185,7 +2141,7 @@ method DrawSetups(CandleSet candleSet) =>
                         bin.labels.push(label.new(setup.proj_start_idx, price, str.tostring(dev), color = color_transparent, textcolor = settings.proj_color, style = label.style_label_right, size = proj_label_sz))
                 if settings.show_c2_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
                     lbl_style = setup.is_bullish ? label.style_label_up : label.style_label_down
-                    string lbl_text = setup.is_invalid ? "xC2" : "C2"
+                    string lbl_text = setup.is_invalid ? "xC2" : "C2" + PspTag(candleSet.candles, FindCandleIndex(candleSet.candles, setup.htf_candle_idx))
                     color lbl_color = setup.is_invalid ? color.red : settings.c2_color
                     bin.labels.push(label.new(setup.c2_x, setup.c2_y, lbl_text, color = color_transparent, textcolor = lbl_color, style = lbl_style, size = settings.c2_size))
                 if not setup.is_invalid and settings.sweep_show
@@ -2282,7 +2238,7 @@ method DrawSetups(CandleSet candleSet) =>
                 bin.labels.push(label.new(setup.proj_start_idx, price, str.tostring(dev), color = color_transparent, textcolor = settings.proj_color, style = label.style_label_right, size = proj_label_sz))
         if settings.show_c2_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.is_post_c2 and setup.cisd_triggered
             lbl_style = is_bull ? label.style_label_up : label.style_label_down
-            string lbl_text = setup.is_invalid ? "xC2" : "C2"
+            string lbl_text = setup.is_invalid ? "xC2" : "C2" + PspTag(candleSet.candles, FindCandleIndex(candleSet.candles, setup.htf_candle_idx))
             color lbl_color = setup.is_invalid ? color.red : settings.c2_color
             bin.labels.push(label.new(setup.c2_x, setup.c2_y, lbl_text, color = color_transparent, textcolor = lbl_color, style = lbl_style, size = settings.c2_size))
         if not setup.is_invalid and settings.sweep_show
@@ -2371,12 +2327,13 @@ PanelCLabel(Candle c, string txt, bool bull, color col) =>
     string t = dow_same_side ? (bull ? '\n' + txt : txt + '\n') : txt
     bin.labels.push(label.new(c.wick_x, y, t, color = color_transparent, textcolor = col, style = bull ? label.style_label_up : label.style_label_down, size = settings.c2_size))
 
-// C1–C4 labels on a preview panel (HTF1 / HTF3 when they don't host the model): the latest C1 → C2
-// sweep that is still standing — same rule as the panel sweep lines. Uses the C2 / C3 / C4 toggles,
-// label color / size and 'C-Labels On' (Panel / Both).
-DrawPanelCLabelsPreview(array<Candle> arr) =>
+// C1–C4 labels on every HTF panel (model panel included): the latest C1 → C2 sweep that is still
+// standing, forming C2 included (live sweep) — same rule as the panel sweep lines. Uses the C2 / C3 / C4
+// toggles, label color / size and 'C-Labels On' (Panel / Both); on = 'C1–C4 on Other Panels' for the
+// panels that do not host the model.
+DrawPanelCLabelsPreview(array<Candle> arr, bool on) =>
     int n = arr.size()
-    if c_lbl_panel and pnl_other_clbl_input and not settings.hide_setups and n >= 2
+    if c_lbl_panel and on and not settings.hide_setups and n >= 2
         int best = -1
         bool best_bull = false
         for i = 0 to n - 2
@@ -2396,43 +2353,12 @@ DrawPanelCLabelsPreview(array<Candle> arr) =>
         if best >= 0
             if settings.show_c2_lbl
                 PanelCLabel(arr.get(best + 1), 'C1', best_bull, settings.c2_color)
-                PanelCLabel(arr.get(best), 'C2', best_bull, settings.c2_color)
+                PanelCLabel(arr.get(best), 'C2' + PspTag(arr, best), best_bull, settings.c2_color)
             if settings.show_c3_lbl and best >= 1
                 PanelCLabel(arr.get(best - 1), 'C3', best_bull, settings.c2_color)
             if settings.show_c4_lbl and best >= 2
                 PanelCLabel(arr.get(best - 2), 'C4', best_bull, settings.c2_color)
     0
-
-method DrawPanelCLabels(CandleSet candleSet) =>
-    Setup best = na
-    int best_idx = -1
-    for setup in candleSet.setups
-        bool bias_ok = settings.bias == 'Neutral' or (settings.bias == 'Bullish' and setup.is_bullish) or (settings.bias == 'Bearish' and not setup.is_bullish)
-        if setup.is_confirmed and not setup.is_invalid and bias_ok and setup.htf_candle_idx > best_idx
-            best := setup
-            best_idx := setup.htf_candle_idx
-    for is_bull in array.from(false, true)
-        bool has_live = is_bull ? candleSet.has_live_bullish : candleSet.has_live_bearish
-        if has_live
-            Setup lv = is_bull ? candleSet.live_bullish : candleSet.live_bearish
-            bool bias_ok = settings.bias == 'Neutral' or (settings.bias == 'Bullish' and is_bull) or (settings.bias == 'Bearish' and not is_bull)
-            if bias_ok and lv.is_post_c2 and lv.cisd_triggered and not lv.is_invalid and lv.htf_candle_idx > best_idx
-                best := lv
-                best_idx := lv.htf_candle_idx
-    if not na(best)
-        int i1 = FindCandleIndex(candleSet.candles, best.swept_candle_idx)
-        int i2 = FindCandleIndex(candleSet.candles, best.htf_candle_idx)
-        if i2 >= 0
-            bool bull = best.is_bullish
-            if settings.show_c2_lbl
-                if i1 >= 0
-                    PanelCLabel(candleSet.candles.get(i1), 'C1', bull, settings.c2_color)
-                PanelCLabel(candleSet.candles.get(i2), 'C2', bull, settings.c2_color)
-            if settings.show_c3_lbl and i2 >= 1
-                PanelCLabel(candleSet.candles.get(i2 - 1), 'C3', bull, settings.c2_color)
-            if settings.show_c4_lbl and i2 >= 2
-                PanelCLabel(candleSet.candles.get(i2 - 2), best.ez_c4_invalid ? 'xC4' : 'C4', bull, best.ez_c4_invalid ? color.red : settings.c2_color)
-    candleSet
 
 // Draws the Fractal model's candles as a panel starting at bar x. Returns the panel's right edge.
 method DrawModelPanel(CandleSet candleSet, int x) =>
@@ -3405,7 +3331,7 @@ int   pp0_ot = htf.candles.size() > 0 ? htf.candles.first().o_time : na
 int   pp1_ot = pnl_a1.size() > 0 ? pnl_a1.first().o_time : na
 int   pp2_ot = pnl_a2.size() > 0 ? pnl_a2.first().o_time : na
 int   pp3_ot = pnl_a3.size() > 0 ? pnl_a3.first().o_time : na
-bool  pp0_on = pnl_pair_on and valid_htf and model_runtime and pnl_a_match > 0 and not na(pp0_ot)
+bool  pp0_on = (pnl_pair_on and pnl_a_match > 0 or htf_psp_show) and valid_htf and model_runtime and not na(pp0_ot)
 SyncPairCandle(pp0_1, pp0_on and corr_pair1_configured, pr1o, pr1h, pr1l, pr1c, pp0_ot, htf.settings.max_display + 2)
 SyncPairCandle(pp0_2, pp0_on and corr_pair2_configured, pr2o, pr2h, pr2l, pr2c, pp0_ot, htf.settings.max_display + 2)
 SyncPairCandle(pp1_1, pnl_pair_on and corr_pair1_configured and not na(pp1_ot), pr1o, pr1h, pr1l, pr1c, pp1_ot, pnl1_count + 2)
@@ -3424,6 +3350,8 @@ if barstate.islast or barstate.isrealtime
     f_smt_reserve_host_lines(host_line_reserve)
     int model_pane = pnl_a_match
     settings.model_on_panel := valid_htf and not settings.hide_candles and model_pane > 0
+    if valid_htf and htf.candles.size() > 0
+        PanelFeatures(htf.candles, pp0_1, pp0_2, corr_pair1_ok, corr_pair2_ok)
     if not settings.hide_candles
         int x = bar_index + offset
         for p = 1 to 3
@@ -3432,19 +3360,18 @@ if barstate.islast or barstate.isrealtime
             array<Candle> parr = p == 1 ? pnl_a1 : p == 2 ? pnl_a2 : pnl_a3
             if pok
                 if settings.model_on_panel and p == model_pane and htf.candles.size() > 0
-                    PanelFeatures(htf.candles, pp0_1, pp0_2, corr_pair1_ok, corr_pair2_ok)
                     x := htf.DrawModelPanel(x) + pnl_gap_input
                 else if parr.size() > 0
                     PanelFeatures(parr, p == 1 ? pp1_1 : p == 2 ? pp2_1 : pp3_1, p == 1 ? pp1_2 : p == 2 ? pp2_2 : pp3_2, corr_pair1_ok, corr_pair2_ok)
                     x := DrawExtraCluster(parr, x, ptf) + pnl_gap_input
-                    DrawPanelCLabelsPreview(parr)
+                    DrawPanelCLabelsPreview(parr, pnl_other_clbl_input)
     if valid_htf
         htf.DrawVTHLLines()
         if not settings.hide_setups
             htf.DrawSetups()
             DrawICCisd()
             if c_lbl_panel and settings.model_on_panel
-                htf.DrawPanelCLabels()
+                DrawPanelCLabelsPreview(htf.candles, true)
 
 // ============================================================================
 // Sequence table — engine
@@ -3478,7 +3405,7 @@ if barstate.islast or barstate.isrealtime
 // Everything resets when the next sequence candle opens.
 // ============================================================================
 bool   seq_is_1h      = timeframe.in_seconds() == 60
-string seq_dir_tf     = seq_is_1h ? '60' : '240'
+string seq_dir_tf     = model_tf
 string seq_a_sweep_tf = seq_is_1h ? '15' : '60'
 string seq_a_exec_tf  = '5'
 string seq_b_sweep_tf = seq_is_1h ? '15' : '30'
@@ -3605,6 +3532,7 @@ type SeqLaneSt
     float    eL     = na
     float    eC     = na
     bool     eProc  = false
+    bool     fx     = false // execution windows given by the feed (Classic)
     SeqTrack bu     = na   // bullish: C1 low taken → CISD up
     SeqTrack be     = na   // bearish: C1 high taken → CISD down
     SeqTrack pbu    = na   // tracks of the previous sequence candle (read at its close)
@@ -3662,7 +3590,7 @@ method proc(SeqLaneSt st) =>
             if not na(st.dnRO)
                 st.lDnRO := st.dnRO
                 st.dnRO  := na
-        int endT = (st.eId + 1) * st.eMs
+        int endT = st.fx ? st.eId + st.eMs : (st.eId + 1) * st.eMs
         st.bu.step(true, st.eH, st.eL, c, nz(st.dnRO, st.lDnRO), endT - st.eMs, endT)
         st.be.step(false, st.eH, st.eL, c, nz(st.upRO, st.lUpRO), endT - st.eMs, endT)
         // C2 tracker: the previous candle's (C2's) CISD may still come early in the next candle
@@ -3672,16 +3600,18 @@ method proc(SeqLaneSt st) =>
         st.eProc := true
     st
 
-// Feed one 1m bar (t = open time). closed = the 1m bar has closed.
-method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool closed) =>
+// Feed one bar (t = open time). closed = the bar has closed. Boom: 1m bars (ew = na, clock windows);
+// Classic: ew = open time of the execution candle the bar belongs to, ewEnd = the bar ends it.
+method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool closed, int ew, bool ewEnd) =>
     if not na(t) and (na(st.lastT) or t >= st.lastT)
         st.lastT := t
+        st.fx    := not na(ew)
         int sid = st.sSeq ? dT : math.floor(t / st.sMs)
-        int eid = math.floor(t / st.eMs)
+        int eid = st.fx ? ew : math.floor(t / st.eMs)
         // k = 0: a new execution window started while the previous candle was not processed yet
         // k = 1: this closed 1m bar ends its execution window
         for k = 0 to 1
-            if k == 0 ? not na(st.eId) and eid != st.eId : closed and math.floor((t + 60000) / st.eMs) != eid
+            if k == 0 ? not na(st.eId) and eid != st.eId : closed and (st.fx ? ewEnd : math.floor((t + 60000) / st.eMs) != eid)
                 st.proc()
             if k == 0
                 // every new sequence candle starts clean
@@ -3753,16 +3683,21 @@ var array<string> SEQ_LBL = array.from('CISD in C2', 'C2 inside 75% of C1', 'POI
 int SEQ_HIGH = 85
 int SEQ_BOOM = 95
 // ── Lanes + C2 tracker + POI zones, fed every chart bar ──
-string seq_c2_exec_tf = seq_is_1h ? '5' : '15'     // C2's paired LTF CISD (1H → 5m, 4H → 15m)
-// POI timeframes, the model's own first (it wins a tie): 1H sequence 1H / 15m / 4H / D,
-// 4H sequence 4H / 1H / D
-string seq_poi_tf1    = seq_is_1h ? '60' : '240'
-string seq_poi_tf2    = seq_is_1h ? '15' : '60'
-string seq_poi_tf3    = seq_is_1h ? '240' : 'D'
-string seq_poi_tf4    = 'D'
-int    seq_poi_n      = seq_is_1h ? 4 : 3
-string seq_poi_all    = seq_is_1h ? '15m/1H/4H/D' : '1H/4H/D'
-int    seq_gMs        = seq_grace_input ? (seq_is_1h ? 45 : 180) * 60000 : 0   // C2 CISD window into C3
+string seq_c2_exec_tf = seq_classic ? getFractalLTF() : seq_is_1h ? '5' : '15'     // C2's paired LTF CISD (Boom: 1H → 5m, 4H → 15m; Classic: Fractal LTF)
+// POI timeframes, the model's own first (it wins a tie). Boom: 1H sequence 1H / 15m / 4H / D,
+// 4H sequence 4H / 1H / D. Classic: 15m / 30m / 1H model 15m / 1H / 4H, 4H model 1H / 4H / D,
+// D / W / M model its own timeframe.
+int    seq_ms         = timeframe.in_seconds(seq_dir_tf)
+bool   seq_cl_low     = seq_classic and (seq_ms == 900 or seq_ms == 1800 or seq_ms == 3600)
+bool   seq_cl_4h      = seq_classic and seq_ms == 14400
+bool   seq_cl_one     = seq_classic and not seq_cl_low and not seq_cl_4h
+string seq_poi_tf1    = seq_cl_one ? seq_dir_tf : seq_cl_low ? (seq_ms == 3600 ? '60' : '15') : seq_cl_4h ? '240' : seq_is_1h ? '60' : '240'
+string seq_poi_tf2    = seq_cl_one ? seq_dir_tf : seq_cl_low ? (seq_ms == 3600 ? '15' : '60') : seq_cl_4h ? '60' : seq_is_1h ? '15' : '60'
+string seq_poi_tf3    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : seq_cl_4h ? 'D' : seq_is_1h ? '240' : 'D'
+string seq_poi_tf4    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : 'D'
+int    seq_poi_n      = seq_cl_one ? 1 : seq_classic or not seq_is_1h ? 3 : 4
+string seq_poi_all    = seq_cl_one ? PanelLabel(seq_dir_tf) : seq_cl_low ? '15m/1H/4H' : seq_cl_4h or not seq_is_1h ? '1H/4H/D' : '15m/1H/4H/D'
+int    seq_gMs        = seq_grace_input and not seq_classic ? int(seq_ms * 750) : 0   // C2 CISD window: first 75% of C3
 bool seq_a_sweep = false
 bool seq_a_entry = false
 bool seq_b_sweep = false
@@ -3774,6 +3709,12 @@ SeqLaneSt seq_la  = seq_lanes.get(0)
 SeqLaneSt seq_lb  = seq_lanes.get(1)
 SeqLaneSt seq_lc2 = seq_lanes.get(2)
 int seq_dT = time(seq_dir_tf)
+// feed bars: Boom 1m, Classic the C2 CISD timeframe (chart bars when the chart is not above it)
+string seq_ftf  = seq_classic ? seq_c2_exec_tf : '1'
+bool   seq_fch  = timeframe.in_seconds() <= timeframe.in_seconds(seq_ftf)
+string seq_ewtf = seq_fch ? seq_ftf : timeframe.period
+int    seq_ewT  = time(seq_ewtf)
+int    seq_ewC  = time_close(seq_ewtf)
 // POI zones from each POI timeframe's own candles (closed candles only → no repaint)
 [pz1t, pz1b, pz1d, pz1z] = request.security(syminfo.tickerid, seq_poi_tf1, SeqZones(), lookahead = barmerge.lookahead_on)
 [pz2t, pz2b, pz2d, pz2z] = request.security(syminfo.tickerid, seq_poi_tf2, SeqZones(), lookahead = barmerge.lookahead_on)
@@ -3781,15 +3722,15 @@ int seq_dT = time(seq_dir_tf)
 [pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
 array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
 if seq_show_input
-    // 1-minute bars: the chart's own bar on a 1m chart, otherwise the 1m candles inside each chart
-    // bar (request.security_lower_tf returns plain OHLC arrays)
+    // Boom: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar);
+    // Classic: the chart's bar, or the C2 CISD-TF candles inside it (request.security_lower_tf)
     array<int>   seq_lt = array.from(time)
     array<float> seq_lo = array.from(open)
     array<float> seq_lh = array.from(high)
     array<float> seq_ll = array.from(low)
     array<float> seq_lc = array.from(close)
-    if timeframe.in_seconds() > 60
-        [lt, lo, lh, ll, lc] = request.security_lower_tf(syminfo.tickerid, '1', [time, open, high, low, close])
+    if not seq_fch
+        [lt, lo, lh, ll, lc] = request.security_lower_tf(syminfo.tickerid, seq_ftf, [time, open, high, low, close])
         seq_lt := lt
         seq_lo := lo
         seq_lh := lh
@@ -3798,8 +3739,12 @@ if seq_show_input
     int seq_n = seq_lt.size()
     if seq_n > 0
         for i = 0 to seq_n - 1
-            for ln in seq_lanes
-                ln.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), i < seq_n - 1 or barstate.isconfirmed)
+            bool cl = i < seq_n - 1 or barstate.isconfirmed
+            if seq_classic
+                seq_lc2.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), cl, seq_fch ? seq_ewT : seq_lt.get(i), not seq_fch or seq_ewC == time_close)
+            else
+                for ln in seq_lanes
+                    ln.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), cl, na, false)
 
 // ── Setup probability score of a C2 (dir) with C1 = c1H/c1L opened at c1T, C2 = c2H/c2L at c2T ──
 // SMT-Fill (QTSmtFillEngine record of the bias side, from C1 open on) and SMT (any SMT family
@@ -3990,7 +3935,7 @@ if barstate.islast and dash_show_input
         table.cell(dash_tbl, 0, 2, dash_pairs_str, text_color = dash_text_color_input, bgcolor = dash_bg_color_input, text_size = size.small, text_halign = text.align_center)
 
     if not valid_htf
-        string dash_warn = '⚠ Fractal HTF (' + dash_htf1_disp + ') invalid for chart TF (' + dash_ltf_disp + ') — check Fractal settings'
+        string dash_warn = '⚠ Fractal HTF (' + dash_htf1_disp + ') invalid for chart TF (' + dash_ltf_disp + ') — check Sequence / Fractal settings'
         table.cell(dash_tbl, 0, 3, dash_warn, text_color = dash_bg_color_input, bgcolor = color.new(#cc0000, 0), text_size = size.small, text_halign = text.align_center)
 
 // SMT projection runs last so it sees the final drawing budget (Profiler order)
@@ -4112,7 +4057,7 @@ if barstate.islast and seq_show_input
     array<int> mr = array.from(1, 23, 201, 223)    // merges: row * 100 + first col * 10 + last col
     // top
     SeqCell(seq_tbl, 0, 0, '◆ SEQUENCE', hx, hd, L)
-    SeqCell(seq_tbl, 2, 0, 'Auto · ' + PanelLabel(seq_dir_tf), hx, hd, R)
+    SeqCell(seq_tbl, 2, 0, (seq_classic ? 'Classic · ' : 'Boom · ') + PanelLabel(seq_dir_tf), hx, hd, R)
     SeqCell(seq_tbl, 0, 1, 'BIAS', wt, rw, L)
     SeqCell(seq_tbl, 1, 1, bias_tx, #ffffff, bias_bg, C)
     SeqCell(seq_tbl, 2, 1, 'LIVE CANDLE', wt, rw, L)
@@ -4120,8 +4065,10 @@ if barstate.islast and seq_show_input
     // middle: C2 QUALITY + checklist (label | points)
     // candle times beside the section titles (with Conditions: C3 Only): C2 = the candle C2 QUALITY
     // grades (the valid C2 behind the C3, or the candle on the chart while WAITING), C3 = the C3 on the chart
-    string c2_t = seq_c3_only_input ? '   ' + str.format_time(q_c2 ? seq_c2T : seq_dO, 'HH:mm', 'America/New_York') : ''
-    string c3_t = seq_c3_only_input and c3 ? '   ' + str.format_time(seq_dO, 'HH:mm', 'America/New_York') : ''
+    // (Classic: C2 time always; D / W / M model as date)
+    string t_fmt = seq_ms >= 86400 ? 'MMM dd' : 'HH:mm'
+    string c2_t = seq_c3_only_input or seq_classic ? '   ' + str.format_time(q_c2 ? seq_c2T : seq_dO, t_fmt, 'America/New_York') : ''
+    string c3_t = seq_c3_only_input and c3 ? '   ' + str.format_time(seq_dO, t_fmt, 'America/New_York') : ''
     SeqCell(seq_tbl, 0, 2, 'C2 QUALITY' + c2_t, hx, hd, L)
     SeqCell(seq_tbl, 2, 2, q_tx, #ffffff, qc, C)
     int r = 3
@@ -4133,18 +4080,19 @@ if barstate.islast and seq_show_input
             SeqCell(seq_tbl, 3, r, '+' + str.tostring(w), kc, rw, R)
             mr.push(r * 100 + 2)
             r += 1
-    // bottom: C3 SETUP lanes, EXECUTION, progress
-    SeqCell(seq_tbl, 0, r, 'C3 SETUP' + c3_t, hx, hd, L)
-    mr.push(r * 100 + 3)
-    r += 1
-    r := SeqRow(seq_tbl, r, mr, '▸ LANE A', wt, ln, as_lbl + ' ▸ ' + ae_lbl, wt, ln, R, '', wt, false)
-    r := SeqRow(seq_tbl, r, mr, a1i + as_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_la, seq_dbias, a_sw) : '', a_sw ? seq_done_input : wt, rw, L, a1t, a1c, true)
-    r := SeqRow(seq_tbl, r, mr, a2i + ae_lbl + ' entry', tx, rw, a_en ? SeqCisdTxt(seq_la, seq_dbias) : '', tx, rw, L, a2t, a2c, true)
-    r := SeqRow(seq_tbl, r, mr, '▸ LANE B', wt, ln, bs_lbl + ' ▸ ' + be_lbl, wt, ln, R, '', wt, false)
-    r := SeqRow(seq_tbl, r, mr, b1i + bs_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_lb, seq_dbias, b_sw) : '', b_sw ? seq_done_input : wt, rw, L, b1t, b1c, true)
-    r := SeqRow(seq_tbl, r, mr, b2i + be_lbl + ' entry', tx, rw, b_en ? SeqCisdTxt(seq_lb, seq_dbias) : '', tx, rw, L, b2t, b2c, true)
-    r := SeqRow(seq_tbl, r, mr, 'EXECUTION', wt, rw, ex_tx, #ffffff, ex_c, C, '', wt, false)
-    r := SeqRow(seq_tbl, r, mr, bar_tx, bar_col, rw, str.tostring(done_n) + ' / 4', wt, rw, R, '', wt, false)
+    // bottom (Boom only): C3 SETUP lanes, EXECUTION, progress
+    if not seq_classic
+        SeqCell(seq_tbl, 0, r, 'C3 SETUP' + c3_t, hx, hd, L)
+        mr.push(r * 100 + 3)
+        r += 1
+        r := SeqRow(seq_tbl, r, mr, '▸ LANE A', wt, ln, as_lbl + ' ▸ ' + ae_lbl, wt, ln, R, '', wt, false)
+        r := SeqRow(seq_tbl, r, mr, a1i + as_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_la, seq_dbias, a_sw) : '', a_sw ? seq_done_input : wt, rw, L, a1t, a1c, true)
+        r := SeqRow(seq_tbl, r, mr, a2i + ae_lbl + ' entry', tx, rw, a_en ? SeqCisdTxt(seq_la, seq_dbias) : '', tx, rw, L, a2t, a2c, true)
+        r := SeqRow(seq_tbl, r, mr, '▸ LANE B', wt, ln, bs_lbl + ' ▸ ' + be_lbl, wt, ln, R, '', wt, false)
+        r := SeqRow(seq_tbl, r, mr, b1i + bs_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_lb, seq_dbias, b_sw) : '', b_sw ? seq_done_input : wt, rw, L, b1t, b1c, true)
+        r := SeqRow(seq_tbl, r, mr, b2i + be_lbl + ' entry', tx, rw, b_en ? SeqCisdTxt(seq_lb, seq_dbias) : '', tx, rw, L, b2t, b2c, true)
+        r := SeqRow(seq_tbl, r, mr, 'EXECUTION', wt, rw, ex_tx, #ffffff, ex_c, C, '', wt, false)
+        r := SeqRow(seq_tbl, r, mr, bar_tx, bar_col, rw, str.tostring(done_n) + ' / 4', wt, rw, R, '', wt, false)
     var bool seq_merged = false
     if not seq_merged
         for m in mr
