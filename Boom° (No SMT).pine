@@ -189,7 +189,6 @@ type Settings
     color entry_zone_bear_color
     // General settings
     bool alerts_enabled
-    bool live_alerts_enabled
     string fractal_mode
     string custom_ltf
     string bias
@@ -256,15 +255,6 @@ var array<float> proj_deviations = array.new_float()
 // Settings Inputs
 // ============================================================================
 
-// ============================================================================
-// Alerts
-// ============================================================================
-string group_alerts             = "Alerts  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-alert_c2_formed                  = input.bool(true, "C2 Formed", group=group_alerts, tooltip="Fires the moment a setup's sweep confirms at HTF candle close (C2 forms), independent of whether CISD has triggered yet.")
-alert_c2_confirmed               = input.bool(true, "Confirmed C2 + CISD", group=group_alerts, tooltip="Fires when a setup's sweep is confirmed AND its CISD level has triggered, on a closed HTF candle (both live-tracked and historical setups).")
-alert_c2_potential                = input.bool(true, "Potential C1 Sweep + CISD", group=group_alerts, tooltip="Fires when CISD triggers during live setup tracking, before the HTF candle that hosts the sweep has closed — i.e. the C1 sweep + CISD level are both present but not yet formally confirmed.")
-alert_ic_cisd                    = input.bool(true, "IC-CISD Confirmed", group=group_alerts, tooltip="Fires when a same-side IC-CISD confirms after the main CISD.")
-
 string group_general            = "General Settings  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 string group_htf               = "HTF Candles  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 string group_sweep              = "Model Settings  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -283,6 +273,12 @@ custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inlin
 settings.custom_ltf             := custom_ltf_input
 custom_htf_input                = input.timeframe('60','-', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
 settings.bias                   := input.string('Neutral', 'Bias', options=['Neutral', 'Bullish', 'Bearish'], group=group_general, tooltip='Filter setups by direction:\n\nNeutral: Show both bullish and bearish setups.\nBullish: Only show bullish setups (low sweeps).\nBearish: Only show bearish setups (high sweeps).')
+
+// Alerts (Sequence engine)
+string group_alerts             = "Alerts  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+alert_c2_input                   = input.bool(true, 'C2 Closed + LTF CISD', group=group_alerts, active=alerts_enabled_input, tooltip='Valid C2 close (C2 + its LTF CISD), also when its CISD confirms in C3. Classic + Boom.')
+alert_c1_input                   = input.bool(true, 'C3: C1 Sweep', group=group_alerts, active=alerts_enabled_input and not seq_classic, tooltip='Boom only. C1 sweep inside C3: 1H model 15m, 4H model 1H / 30m.')
+alert_entry_input                = input.bool(true, 'C3: Entry CISD', group=group_alerts, active=alerts_enabled_input and not seq_classic, tooltip='Boom only. Entry CISD after the C1 sweep: 1H model 5m / 1m, 4H model 5m / 3m.')
 
 getHigherTF() =>
     switch timeframe.period
@@ -387,7 +383,6 @@ drawings_type                  = input.string('Both', 'Drawings Type', options=[
 sweep_show_input                = input.bool(true, 'Show Sweeps   ', group=group_sweep, inline='sweep')
 settings.sweep_show             := sweep_show_input
 settings.sweep_live             := input.bool(true, 'Show live setup', inline='sweep_live', group=group_sweep, active = sweep_show_input)
-settings.live_alerts_enabled    := input.bool(true, 'Alert', inline='sweep_live', group=group_sweep, active = sweep_show_input and alerts_enabled_input, tooltip='Send "Potential" alerts when CISD triggers during live setup tracking')
 settings.sweep_color            := input.color(color.rgb(0, 0, 0, 0), 'Color         ', inline='sweep_color', group=group_sweep, active = sweep_show_input)
 settings.sweep_style            := input.string('Solid', '', options=['Solid', 'Dashed', 'Dotted'], inline='sweep_color', group=group_sweep, active = sweep_show_input)
 settings.sweep_size             := input.int(1, '', options=[1, 2, 3, 4], inline='sweep_color', group=group_sweep, active = sweep_show_input)
@@ -691,13 +686,6 @@ LTFName() =>
         result := str.tostring(seconds / 3600) + 'H'
     result
 
-BuildAlertMessage(string htf, bool is_bullish, bool is_potential, string name) =>
-    string ltf = LTFName()
-    string htf_name = HTFName(htf)
-    string direction = is_bullish ? "Bullish" : "Bearish"
-    string potential = is_potential ? "Potential " : ""
-    str.format("{0}-{1} {2}: {3}{4} {5}", ltf, htf_name, syminfo.ticker, potential, direction, name)
-
 CandleSetHigh(array<Candle> candles, float h) =>
     float _h = h
     for c in candles
@@ -953,8 +941,6 @@ ICUpdate(Setup setup) =>
                     if not na(sw_px) and not na(sw_idx)
                         ICRegister(setup, sw_px, sw_idx)
                         ClearICPending(setup)
-                        if settings.alerts_enabled and alert_ic_cisd and settings.ic_cisd_show and (settings.bias == "Neutral" or (setup.is_bullish and settings.bias == "Bullish") or (not setup.is_bullish and settings.bias == "Bearish"))
-                            alert(BuildAlertMessage(htf.settings.htf, setup.is_bullish, false, "IC-CISD"), alert.freq_once_per_bar)
                     else if not new_ext
                         // Broke with no swing and no new extreme: drop it so the next opposite candle can arm a fresh IC
                         ClearICPending(setup)
@@ -1239,8 +1225,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
                         setup.proj_anchor_1 := math.max(open[extreme_lookback], close[extreme_lookback])
                         setup.proj_anchor_0 := math.min(open[cisd_lookback], close[cisd_lookback])
-                    if settings.live_alerts_enabled and alert_c2_potential and (settings.bias == "Neutral" or settings.bias == "Bearish")
-                        alert(BuildAlertMessage(candleSet.settings.htf, false, true, "C1 Sweep + CISD"), alert.freq_once_per_bar)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1316,8 +1300,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                             setup.proj_anchor_0 := math.min(open[cisd_lookback], close[cisd_lookback])
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
-                        if settings.alerts_enabled and alert_c2_confirmed and (settings.bias == "Neutral" or settings.bias == "Bearish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, false, false, "C2 + CISD"), alert.freq_once_per_bar)
                 if not setup_replaced
                     ICUpdate(setup)
         // ===== BULLISH TRACKING =====
@@ -1385,8 +1367,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
                         setup.proj_anchor_1 := math.min(open[extreme_lookback], close[extreme_lookback])
                         setup.proj_anchor_0 := math.max(open[cisd_lookback], close[cisd_lookback])
-                    if settings.live_alerts_enabled and alert_c2_potential and (settings.bias == "Neutral" or settings.bias == "Bullish")
-                        alert(BuildAlertMessage(candleSet.settings.htf, true, true, "C1 Sweep + CISD"), alert.freq_once_per_bar)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1462,8 +1442,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                             setup.proj_anchor_0 := math.max(open[cisd_lookback], close[cisd_lookback])
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
-                        if settings.alerts_enabled and alert_c2_confirmed and (settings.bias == "Neutral" or settings.bias == "Bullish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, true, false, "C2 + CISD"), alert.freq_once_per_bar)
                 if not setup_replaced
                     ICUpdate(setup)
     if isNewHTFCandle
@@ -1482,10 +1460,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.c3_open := open
                         setup.ez_c3_left_time := time
                         TrySetEntryZoneC3(setup)
-                        if settings.alerts_enabled and alert_c2_formed and (settings.bias == "Neutral" or settings.bias == "Bearish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, false, false, "C2"), alert.freq_once_per_bar)
-                        if setup.cisd_triggered and settings.alerts_enabled and alert_c2_confirmed and (settings.bias == "Neutral" or settings.bias == "Bearish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, false, false, "C2 + CISD"), alert.freq_once_per_bar)
                     else
                         candleSet.has_live_bearish := false
                 else
@@ -1523,10 +1497,6 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.c3_open := open
                         setup.ez_c3_left_time := time
                         TrySetEntryZoneC3(setup)
-                        if settings.alerts_enabled and alert_c2_formed and (settings.bias == "Neutral" or settings.bias == "Bullish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, true, false, "C2"), alert.freq_once_per_bar)
-                        if setup.cisd_triggered and settings.alerts_enabled and alert_c2_confirmed and (settings.bias == "Neutral" or settings.bias == "Bullish")
-                            alert(BuildAlertMessage(candleSet.settings.htf, true, false, "C2 + CISD"), alert.freq_once_per_bar)
                     else
                         candleSet.has_live_bullish := false
                 else
@@ -2526,7 +2496,7 @@ int    seq_ewC  = time_close(seq_ewtf)
 [pz3t, pz3b, pz3d, pz3z] = request.security(syminfo.tickerid, seq_poi_tf3, SeqZones(), lookahead = barmerge.lookahead_on)
 [pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
 array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
-if seq_show_input
+if seq_show_input or alerts_enabled_input
     // Boom: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar);
     // Classic: the chart's bar, or the C2 CISD-TF candles inside it (request.security_lower_tf)
     array<int>   seq_lt = array.from(time)
@@ -2617,6 +2587,14 @@ var int   seq_pDir  = 0     // pending C2 (closed without its CISD): direction, 
 var SeqSc seq_pF = SeqScNew()
 var int   seq_pT    = na
 var int   seq_c2T   = na    // open time of the latest valid C2
+// alert messages of this bar (sent once each, at the end of the sequence engine)
+array<string> seq_alert = array.new<string>()
+SeqBiasOk(int d) =>
+    settings.bias == 'Neutral' or (d == 1 and settings.bias == 'Bullish') or (d == -1 and settings.bias == 'Bearish')
+SeqAlertHead(int d) =>
+    syminfo.ticker + ' ' + (seq_classic ? 'Classic ' : 'Boom ') + PanelLabel(seq_dir_tf) + ' · ' + (d == 1 ? '▲ Bullish' : '▼ Bearish')
+SeqAlertT(int t) =>
+    str.format_time(t, seq_ms >= 86400 ? 'MMM dd' : 'HH:mm', 'America/New_York')
 bool seq_newD = ta.change(time(seq_dir_tf)) != 0
 int  seq_wD = 0                              // live check of the candle on the chart (last bar)
 SeqSc seq_wF = SeqScNew()
@@ -2633,6 +2611,8 @@ for k = 0 to 1
             seq_scHas  := true
             seq_lastC2 := true
             seq_c2T    := seq_dO
+            if alert_c2_input and SeqBiasOk(d)
+                seq_alert.push(SeqAlertHead(d) + ' C2 closed + ' + PanelLabel(seq_c2_exec_tf) + ' CISD (C2 ' + SeqAlertT(seq_dO) + ')')
         else
             seq_cnum := seq_cnum > 0 ? seq_cnum + 1 : 0
             if d != 0 and seq_gMs > 0
@@ -2686,6 +2666,8 @@ if not seq_dEval
             seq_scD   := seq_pF
             seq_scHas := true
             seq_c2T   := seq_pT
+            if alert_c2_input and SeqBiasOk(seq_pDir)
+                seq_alert.push(SeqAlertHead(seq_pDir) + ' C2 + ' + PanelLabel(seq_c2_exec_tf) + ' CISD in C3 (C2 ' + SeqAlertT(seq_pT) + ')')
             seq_pDir  := 0
         else if na(g) or g.lk or time_close > seq_dO + seq_gMs
             seq_pDir := 0
@@ -2693,7 +2675,7 @@ if not seq_dEval
     if seq_dcnum == 3
         seq_dBrk := seq_dbias == 1 ? seq_dL < seq_pcL : seq_dH > seq_pcH
 
-if seq_show_input
+if seq_show_input or alerts_enabled_input
     // a lane only counts for the sequence candle on the chart, in the bias it opened with; after its
     // close (market break) the steps stay until the next candle opens and starts fresh
     bool seq_live = seq_dbias != 0
@@ -2705,6 +2687,39 @@ if seq_show_input
     seq_a_entry := seq_a_cur and seq_ta.e
     seq_b_sweep := seq_b_cur and seq_tb.s
     seq_b_entry := seq_b_cur and seq_tb.e
+    // alerts (Boom): each new C1 sweep / entry CISD of a lane while the table counts it
+    // ('Conditions: C3 Only' on → only in C3)
+    var array<int> seq_alId = array.from(0, 0, 0, 0)    // last alerted sweep / CISD time: A sweep, A CISD, B sweep, B CISD
+    bool   seq_ok  = not seq_classic and seq_dbias != 0 and (not seq_c3_only_input or (seq_dcnum == 3 and not seq_dBrk)) and SeqBiasOk(seq_dbias)
+    string seq_cn  = seq_dcnum == 3 and not seq_dBrk ? 'C3' : 'C' + str.tostring(seq_dcnum)
+    for k = 0 to 3
+        bool     isA = k < 2
+        bool     isS = k % 2 == 0
+        SeqTrack tr  = isA ? seq_ta : seq_tb
+        bool     on  = isA ? (isS ? seq_a_sweep : seq_a_entry) : (isS ? seq_b_sweep : seq_b_entry)
+        int      id  = na
+        if on
+            id := isS ? tr.sT : tr.eT
+        if not na(id) and id != seq_alId.get(k)
+            seq_alId.set(k, id)
+            if seq_ok and (isS ? alert_c1_input : alert_entry_input)
+                string tf = PanelLabel(isA ? (isS ? seq_a_sweep_tf : seq_a_exec_tf) : (isS ? seq_b_sweep_tf : seq_b_exec_tf))
+                seq_alert.push(SeqAlertHead(seq_dbias) + ' ' + seq_cn + ' · Lane ' + (isA ? 'A: ' : 'B: ') + tf + (isS ? ' C1 sweep (C1 ' + SeqAlertT(tr.c1T) + ')' : ' entry CISD (' + SeqAlertT(tr.eT) + ')'))
+
+// Send: each message once (varip keeps what was sent during the realtime bar)
+varip int    seq_alBar  = -1
+varip string seq_alSent = ''
+if alerts_enabled_input and barstate.isrealtime and seq_alert.size() > 0
+    if seq_alBar != bar_index
+        seq_alBar  := bar_index
+        seq_alSent := ''
+    string msg = ''
+    for m in seq_alert
+        if not str.contains(seq_alSent, m)
+            seq_alSent += m + '|'
+            msg += (msg == '' ? '' : '\n') + m
+    if msg != ''
+        alert(msg, alert.freq_all)
 
 if barstate.islast and dash_show_input
     var table dash_tbl = table.new(dash_table_position(dash_vert_input, dash_horz_input), 1, 3,
