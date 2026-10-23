@@ -265,9 +265,9 @@ alerts_enabled_input            = input.bool(true, 'Alerts?', group=group_genera
 settings.alerts_enabled         := alerts_enabled_input
 settings.sweep_history          := input.int(4, 'History        ', minval=0, group=group_general, inline='history')
 settings.sweep_visible_only     := input.bool(true, '', tooltip='Number of historical setups to show:\n\n☑ ON: Setups on visible HTF candles always shown. This count adds older setups that scrolled away.\n\n☐ OFF: Only show this many setups total.', inline='history', group=group_general)
-seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: 1m chart → 1H model, other charts → 4H. C3 SETUP lanes on the table.\n\nClassic: model, C-labels and C2 QUALITY follow the Fractal pairing; the C2 CISD is on the Fractal LTF. No C3 SETUP.')
+seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 5m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 1H model 15m/1H/4H/D, 4H model 1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
 bool seq_classic                = seq_mode_input == 'Classic'
-fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1s-1m', '15s-5m', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
+fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
 settings.fractal_mode           := fractal_mode_input
 custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
 settings.custom_ltf             := custom_ltf_input
@@ -282,8 +282,6 @@ alert_entry_input                = input.bool(true, 'C3: Entry CISD', group=grou
 
 getHigherTF() =>
     switch timeframe.period
-        "1S" => "1"    // 1 second → 1 minute
-        "15S" => "5"   // 15 seconds → 5 minutes
         "1" => "15"
         "3" => "30"
         "5" => "60"
@@ -301,8 +299,6 @@ getFractalHTF() =>
     switch fractal_mode_input
         "Automatic" => getHigherTF()
         "Custom" => custom_htf_input
-        "1s-1m" => "1"
-        "15s-5m" => "5"
         "1m-15m" => "15"
         "3m-30m" => "30"
         "5m-1H" => "60"
@@ -315,9 +311,7 @@ getFractalHTF() =>
 // Fractal LTF (Classic: the C2 CISD timeframe). Automatic → the chart timeframe.
 getFractalLTF() =>
     switch fractal_mode_input
-        "Custom" => custom_ltf_input
-        "1s-1m" => "1S"
-        "15s-5m" => "15S"
+        "Custom" => timeframe.in_seconds(custom_ltf_input) < 60 ? "1" : custom_ltf_input
         "1m-15m" => "1"
         "3m-30m" => "3"
         "5m-1H" => "5"
@@ -642,6 +636,12 @@ ValidTimeframe(string HTF) =>
         n2 = timeframe.in_seconds(HTF)
         n1 < n2 and math.round(n2 / n1) == n2 / n1
 
+// History offset inside the 5000-bar buffer (else the value is skipped)
+LbOk(int off) =>
+    not na(off) and off >= 0 and off <= 4999
+LbC(int off) =>
+    na(off) ? 0 : math.max(0, math.min(off, 4999))
+
 RemainingTime(string HTF) =>
     if barstate.isrealtime
         timeRemaining = (time_close(HTF) - timenow) / 1000
@@ -678,9 +678,7 @@ PanelLabel(string tf) =>
 LTFName() =>
     seconds = timeframe.in_seconds()
     result = timeframe.period
-    if seconds < 60
-        result := str.tostring(seconds) + 's'
-    else if seconds < 3600
+    if seconds < 3600
         result := str.tostring(seconds / 60) + 'm'
     else if seconds < 86400
         result := str.tostring(seconds / 3600) + 'H'
@@ -768,22 +766,24 @@ FindCISDLevel(int extreme_bar_idx, int bias) =>
     float cisd_price = na
     int cisd_idx = na
     bool found_first = false
-    for i = offset to math.min(offset + 500, bar_index)
-        float c_open = open[i]
-        float c_close = close[i]
-        int candle_attitude = c_close > c_open ? 1 : c_close < c_open ? -1 : 0
-        if candle_attitude == 0
-            continue
-        if not found_first
-            if candle_attitude == bias
-                found_first := true
+    int last = math.min(offset + 500, bar_index, 4999)
+    if LbOk(offset) and offset <= last
+        for i = offset to last
+            float c_open = open[i]
+            float c_close = close[i]
+            int candle_attitude = c_close > c_open ? 1 : c_close < c_open ? -1 : 0
+            if candle_attitude == 0
+                continue
+            if not found_first
+                if candle_attitude == bias
+                    found_first := true
+                    cisd_price := c_open
+                    cisd_idx := bar_index - i
+            else
+                if candle_attitude != bias
+                    break
                 cisd_price := c_open
                 cisd_idx := bar_index - i
-        else
-            if candle_attitude != bias
-                break
-            cisd_price := c_open
-            cisd_idx := bar_index - i
     [cisd_price, cisd_idx]
 
 // ============================================================================
@@ -835,7 +835,7 @@ ICFindSwing(Setup setup, int end_idx) =>
             int off_m = bar_index - m
             int off_l = bar_index - (m - 1)
             int off_r = bar_index - (m + 1)
-            if off_m < 0 or off_l < 0 or off_r < 0
+            if off_m < 0 or off_l < 0 or off_r < 0 or off_l > 4999
                 continue
             if setup.is_bullish
                 if low[off_m] <= low[off_l] and low[off_m] <= low[off_r]
@@ -884,9 +884,9 @@ ICRegister(Setup setup, float sw_px, int sw_idx) =>
     ic.extreme_idx := sw_idx
     ic.is_bull := setup.is_bullish
     ic.visible := setup.cisd_triggered
-    ic.start_time := time[math.max(0, bar_index - setup.ic_start_idx)]
+    ic.start_time := time[LbC(bar_index - setup.ic_start_idx)]
     ic.end_time := time
-    ic.extreme_time := time[math.max(0, bar_index - sw_idx)]
+    ic.extreme_time := time[LbC(bar_index - sw_idx)]
     if na(setup.ic_list)
         setup.ic_list := array.new<ICCisd>()
     array.push(setup.ic_list, ic)
@@ -1220,11 +1220,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.proj_end_idx := setup.extreme_bar_idx + 1
                     if settings.proj_type == "Wick"
                         setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := low[cisd_lookback]
+                        setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
                     else
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := math.max(open[extreme_lookback], close[extreme_lookback])
-                        setup.proj_anchor_0 := math.min(open[cisd_lookback], close[cisd_lookback])
+                        setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                        setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1293,11 +1293,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.proj_end_idx := setup.extreme_bar_idx + 1
                         if settings.proj_type == "Wick"
                             setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := low[cisd_lookback]
+                            setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
                         else
                             int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := math.max(open[extreme_lookback], close[extreme_lookback])
-                            setup.proj_anchor_0 := math.min(open[cisd_lookback], close[cisd_lookback])
+                            setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                            setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1362,11 +1362,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.proj_end_idx := setup.extreme_bar_idx + 1
                     if settings.proj_type == "Wick"
                         setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := high[cisd_lookback]
+                        setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
                     else
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := math.min(open[extreme_lookback], close[extreme_lookback])
-                        setup.proj_anchor_0 := math.max(open[cisd_lookback], close[cisd_lookback])
+                        setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                        setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1435,11 +1435,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.proj_end_idx := setup.extreme_bar_idx + 1
                         if settings.proj_type == "Wick"
                             setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := high[cisd_lookback]
+                            setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
                         else
                             int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := math.min(open[extreme_lookback], close[extreme_lookback])
-                            setup.proj_anchor_0 := math.max(open[cisd_lookback], close[cisd_lookback])
+                            setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                            setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1471,11 +1471,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                                 setup.proj_end_idx := setup.extreme_bar_idx + 1
                                 if settings.proj_type == "Wick"
                                     setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := low[cisd_lookback]
+                                    setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
                                 else
                                     int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := math.max(open[extreme_lookback], close[extreme_lookback])
-                                    setup.proj_anchor_0 := math.min(open[cisd_lookback], close[cisd_lookback])
+                                    setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                                    setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right = time_close(candleSet.settings.htf)
@@ -1508,11 +1508,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                                 setup.proj_end_idx := setup.extreme_bar_idx + 1
                                 if settings.proj_type == "Wick"
                                     setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := high[cisd_lookback]
+                                    setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
                                 else
                                     int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := math.min(open[extreme_lookback], close[extreme_lookback])
-                                    setup.proj_anchor_0 := math.max(open[cisd_lookback], close[cisd_lookback])
+                                    setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
+                                    setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right_bull = time_close(candleSet.settings.htf)
@@ -2241,13 +2241,14 @@ SeqZones() =>
 method near(SeqZ z, int dir, float top, float bot, int t1, float p) =>
     float best = na
     int   bi   = -1
-    for [i, zt] in z.top
-        float zb = z.bot.get(i)
-        if z.dir.get(i) == dir and z.t.get(i) <= t1 and zb <= top and zt >= bot
-            float d = math.max(p - zt, zb - p, 0.0)
-            if na(best) or d < best
-                best := d
-                bi   := i
+    if not na(z.top) and not na(z.bot) and not na(z.dir) and not na(z.t)
+        for [i, zt] in z.top
+            float zb = z.bot.get(i)
+            if z.dir.get(i) == dir and z.t.get(i) <= t1 and zb <= top and zt >= bot
+                float d = math.max(p - zt, zb - p, 0.0)
+                if na(best) or d < best
+                    best := d
+                    bi   := i
     [best, bi]
 
 // Score of a C2: flags 0 LTF CISD inside C2 (must-have), 1 C2 within 75% of C1's range,
@@ -2463,6 +2464,8 @@ string seq_c2_exec_tf = seq_classic ? getFractalLTF() : seq_is_1h ? '5' : '15'  
 // 4H sequence 4H / 1H / D. Classic: 15m / 30m / 1H model 15m / 1H / 4H, 4H model 1H / 4H / D,
 // D / W / M model its own timeframe.
 int    seq_ms         = timeframe.in_seconds(seq_dir_tf)
+bool   seq_tf_ok      = timeframe.in_seconds() >= 60 and seq_ms > timeframe.in_seconds()  // model above the chart
+bool   seq_hi         = timeframe.in_seconds() > 3600   // chart above 1H: no C3 lanes; C2 QUALITY = CISD (+ SMT)
 bool   seq_cl_low     = seq_classic and (seq_ms == 900 or seq_ms == 1800 or seq_ms == 3600)
 bool   seq_cl_4h      = seq_classic and seq_ms == 14400
 bool   seq_cl_one     = seq_classic and not seq_cl_low and not seq_cl_4h
@@ -2472,6 +2475,11 @@ string seq_poi_tf3    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : seq_cl_4h
 string seq_poi_tf4    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : 'D'
 int    seq_poi_n      = seq_cl_one ? 1 : seq_classic or not seq_is_1h ? 3 : 4
 string seq_poi_all    = seq_cl_one ? PanelLabel(seq_dir_tf) : seq_cl_low ? '15m/1H/4H' : seq_cl_4h or not seq_is_1h ? '1H/4H/D' : '15m/1H/4H/D'
+if seq_hi or not seq_tf_ok
+    seq_poi_tf1 := timeframe.period
+    seq_poi_tf2 := timeframe.period
+    seq_poi_tf3 := timeframe.period
+    seq_poi_tf4 := timeframe.period
 int    seq_gMs        = seq_grace_input and not seq_classic ? int(seq_ms * 750) : 0   // C2 CISD window: first 75% of C3
 bool seq_a_sweep = false
 bool seq_a_entry = false
@@ -2485,7 +2493,8 @@ SeqLaneSt seq_lb  = seq_lanes.get(1)
 SeqLaneSt seq_lc2 = seq_lanes.get(2)
 int seq_dT = time(seq_dir_tf)
 // feed bars: Boom 1m, Classic the C2 CISD timeframe (chart bars when the chart is not above it)
-string seq_ftf  = seq_classic ? seq_c2_exec_tf : '1'
+bool   seq_c2only = seq_classic or seq_hi   // only the C2 tracker is fed (on its CISD timeframe)
+string seq_ftf  = seq_c2only ? seq_c2_exec_tf : '1'
 bool   seq_fch  = timeframe.in_seconds() <= timeframe.in_seconds(seq_ftf)
 string seq_ewtf = seq_fch ? seq_ftf : timeframe.period
 int    seq_ewT  = time(seq_ewtf)
@@ -2496,7 +2505,7 @@ int    seq_ewC  = time_close(seq_ewtf)
 [pz3t, pz3b, pz3d, pz3z] = request.security(syminfo.tickerid, seq_poi_tf3, SeqZones(), lookahead = barmerge.lookahead_on)
 [pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
 array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
-if seq_show_input or alerts_enabled_input
+if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // Boom: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar);
     // Classic: the chart's bar, or the C2 CISD-TF candles inside it (request.security_lower_tf)
     array<int>   seq_lt = array.from(time)
@@ -2515,7 +2524,7 @@ if seq_show_input or alerts_enabled_input
     if seq_n > 0
         for i = 0 to seq_n - 1
             bool cl = i < seq_n - 1 or barstate.isconfirmed
-            if seq_classic
+            if seq_c2only
                 seq_lc2.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), cl, seq_fch ? seq_ewT : seq_lt.get(i), not seq_fch or seq_ewC == time_close)
             else
                 for ln in seq_lanes
@@ -2538,7 +2547,7 @@ SeqScore(int dir, float c1H, float c1L, int c1T, float c2H, float c2L, int c2T) 
     SeqSc sc = SeqScNew()
     float bd = na
     for [k, z] in seq_poi
-        if k < seq_poi_n
+        if k < seq_poi_n and not seq_hi
             [d, i] = z.near(dir, math.max(c1H, c2H), math.min(c1L, c2L), t1, p)
             if not na(d) and (na(bd) or d < bd)
                 bd      := d
@@ -2551,10 +2560,14 @@ SeqScore(int dir, float c1H, float c1L, int c1T, float c2H, float c2L, int c2T) 
     sc.f := array.from(fC, f75, fP, fSmt, fP and fSmt, fFill)
     sc
 
+// above a 1H chart only the CISD (+ SMT on C2) rows count
+SeqRowOn(int i) =>
+    not seq_hi or i == 0 or SEQ_LBL.get(i) == 'SMT on C2'
+
 SeqPts(SeqSc s) =>
     int p = 0
     for [i, w] in SEQ_W
-        p += s.f.get(i) ? w : 0
+        p += s.f.get(i) and SeqRowOn(i) ? w : 0
     p
 
 // ── Sequence candles on the chart's own bars (same candles as the HTF panels) ──
@@ -2594,13 +2607,13 @@ SeqBiasOk(int d) =>
 SeqAlertHead(int d) =>
     syminfo.ticker + ' ' + (seq_classic ? 'Classic ' : 'Boom ') + PanelLabel(seq_dir_tf) + ' · ' + (d == 1 ? '▲ Bullish' : '▼ Bearish')
 SeqAlertT(int t) =>
-    str.format_time(t, seq_ms >= 86400 ? 'MMM dd' : 'HH:mm', 'America/New_York')
+    na(t) ? '--' : str.format_time(t, seq_ms >= 86400 ? 'MMM dd' : 'HH:mm', 'America/New_York')
 bool seq_newD = ta.change(time(seq_dir_tf)) != 0
 int  seq_wD = 0                              // live check of the candle on the chart (last bar)
 SeqSc seq_wF = SeqScNew()
 for k = 0 to 1
     // k = 0: fallback check of the previous candle on the new candle's first bar; k = 1: final bar
-    if k == 0 ? seq_newD and not na(seq_dH) and not seq_dEval : not seq_dEval and barstate.isconfirmed and time_close == time_close(seq_dir_tf)
+    if seq_tf_ok and (k == 0 ? seq_newD and not na(seq_dH) and not seq_dEval : not seq_dEval and barstate.isconfirmed and time_close == time_close(seq_dir_tf))
         int d = SeqC2Dir(seq_pcH, seq_pcL, seq_dOp, seq_dH, seq_dL, seq_dC)
         SeqSc f = d != 0 ? SeqScore(d, seq_pcH, seq_pcL, seq_pcT, seq_dH, seq_dL, seq_dO) : seq_pF
         seq_pDir := 0
@@ -2644,14 +2657,14 @@ for k = 0 to 1
             seq_dL := math.min(seq_dL, low)
             seq_dC := close
         // C2 QUALITY live: the candle took the previous low (▲) / high (▼); both → its colour
-        if barstate.islast and not seq_dEval
+        if seq_tf_ok and barstate.islast and not seq_dEval
             bool tL = seq_dL < seq_pcL
             bool tH = seq_dH > seq_pcH
             seq_wD := tL and tH ? (seq_dC > seq_dOp ? 1 : seq_dC < seq_dOp ? -1 : 0) : tL ? 1 : tH ? -1 : 0
             if seq_wD != 0
                 seq_wF := SeqScore(seq_wD, seq_pcH, seq_pcL, seq_pcT, seq_dH, seq_dL, seq_dO)
 
-if not seq_dEval
+if seq_tf_ok and not seq_dEval
     // pending C2: its CISD inside the window confirms it → this candle becomes C3; the window ends
     // when it runs out or this candle takes the C2 extreme first
     if seq_pDir != 0 and seq_lc2.dId == seq_dO and seq_lc2.pdId == seq_pT
@@ -2675,7 +2688,7 @@ if not seq_dEval
     if seq_dcnum == 3
         seq_dBrk := seq_dbias == 1 ? seq_dL < seq_pcL : seq_dH > seq_pcH
 
-if seq_show_input or alerts_enabled_input
+if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // a lane only counts for the sequence candle on the chart, in the bias it opened with; after its
     // close (market break) the steps stay until the next candle opens and starts fresh
     bool seq_live = seq_dbias != 0
@@ -2690,7 +2703,7 @@ if seq_show_input or alerts_enabled_input
     // alerts (Boom): each new C1 sweep / entry CISD of a lane while the table counts it
     // ('Conditions: C3 Only' on → only in C3)
     var array<int> seq_alId = array.from(0, 0, 0, 0)    // last alerted sweep / CISD time: A sweep, A CISD, B sweep, B CISD
-    bool   seq_ok  = not seq_classic and seq_dbias != 0 and (not seq_c3_only_input or (seq_dcnum == 3 and not seq_dBrk)) and SeqBiasOk(seq_dbias)
+    bool   seq_ok  = not seq_classic and not seq_hi and seq_dbias != 0 and (not seq_c3_only_input or (seq_dcnum == 3 and not seq_dBrk)) and SeqBiasOk(seq_dbias)
     string seq_cn  = seq_dcnum == 3 and not seq_dBrk ? 'C3' : 'C' + str.tostring(seq_dcnum)
     for k = 0 to 3
         bool     isA = k < 2
@@ -2735,13 +2748,13 @@ if barstate.islast and dash_show_input
     string dash_asset_str = 'Asset : ' + syminfo.ticker
     table.cell(dash_tbl, 0, 0, dash_asset_str, text_color = dash_text_color_input, bgcolor = dash_bg_color_input, text_size = size.small, text_halign = text.align_center)
 
-    string dash_align_str = 'Alignment : ' + dash_ltf_disp + ' / ' + dash_htf1_disp
+    // Classic: the Fractal pairing itself (LTF / HTF), not the chart
+    string dash_align_str = 'Alignment : ' + (seq_classic ? HTFName(seq_c2_exec_tf) : dash_ltf_disp) + ' / ' + dash_htf1_disp
     table.cell(dash_tbl, 0, 1, dash_align_str, text_color = dash_text_color_input, bgcolor = dash_bg_color_input, text_size = size.small, text_halign = text.align_center)
 
 
-    if not valid_htf
-        string dash_warn = '⚠ Fractal HTF (' + dash_htf1_disp + ') invalid for chart TF (' + dash_ltf_disp + ') — check Sequence / Fractal settings'
-        table.cell(dash_tbl, 0, 2, dash_warn, text_color = dash_bg_color_input, bgcolor = color.new(#cc0000, 0), text_size = size.small, text_halign = text.align_center)
+    // current date (New York)
+    table.cell(dash_tbl, 0, 2, 'Date : ' + str.format_time(timenow, 'EEE, MMM dd yyyy', 'America/New_York'), text_color = dash_text_color_input, bgcolor = dash_bg_color_input, text_size = size.small, text_halign = text.align_center)
 
 
 // ============================================================================
@@ -2789,7 +2802,12 @@ SeqGrade(SeqSc s, int p) =>
         c := seq_high_input
     [g, c]
 
-if barstate.islast and seq_show_input
+if barstate.islast and seq_show_input and not seq_tf_ok
+    var table seq_ntbl = table.new(dash_table_position(seq_vert_input, seq_horz_input), 1, 2, bgcolor = seq_row_bg_input, border_color = seq_lane_bg_input, border_width = 1, frame_color = seq_head_bg_input, frame_width = 1)
+    SeqCell(seq_ntbl, 0, 0, '◆ SEQUENCE', seq_head_tx_input, seq_head_bg_input, text.align_left)
+    SeqCell(seq_ntbl, 0, 1, '⚠ ' + (timeframe.in_seconds() < 60 ? 'Use a 1m or higher chart' : seq_classic ? 'Pick a Fractal above ' + LTFName() : 'Use a chart below ' + PanelLabel(seq_dir_tf)), seq_text_input, seq_row_bg_input, text.align_left)
+
+if barstate.islast and seq_show_input and seq_tf_ok
     var table seq_tbl = table.new(dash_table_position(seq_vert_input, seq_horz_input), 4, 18, bgcolor = seq_row_bg_input, border_color = seq_lane_bg_input, border_width = 1, frame_color = seq_head_bg_input, frame_width = 1)
     bool   c3      = seq_dcnum == 3 and seq_dbias != 0 and not seq_dBrk
     bool   c2_ok   = seq_dbias != 0 and (not seq_c3_only_input or c3)
@@ -2867,18 +2885,18 @@ if barstate.islast and seq_show_input
     // candle times beside the section titles (with Conditions: C3 Only): C2 = the candle C2 QUALITY
     // grades (the valid C2 behind the C3, or the candle on the chart while WAITING), C3 = the C3 on the chart
     // (Classic: C2 time always; D / W / M model as date)
-    string t_fmt = seq_ms >= 86400 ? 'MMM dd' : 'HH:mm'
-    string c2_t = seq_c3_only_input or seq_classic ? '   ' + str.format_time(q_c2 ? seq_c2T : seq_dO, t_fmt, 'America/New_York') : ''
-    string c3_t = seq_c3_only_input and c3 ? '   ' + str.format_time(seq_dO, t_fmt, 'America/New_York') : ''
+    string c2_t = seq_c3_only_input or seq_classic ? '   ' + SeqAlertT(q_c2 ? seq_c2T : seq_dO) : ''
+    string c3_t = seq_c3_only_input and c3 ? '   ' + SeqAlertT(seq_dO) : ''
     SeqCell(seq_tbl, 0, 2, 'C2 QUALITY' + c2_t, hx, hd, L)
     SeqCell(seq_tbl, 2, 2, q_tx, #ffffff, qc, C)
     int r = 3
     if seq_chk_input
         for [i, w] in SEQ_W
-            bool  ok = qf.f.get(i)
+            bool  on = SeqRowOn(i)
+            bool  ok = on and qf.f.get(i)
             color kc = ok ? seq_done_input : wt
-            SeqCell(seq_tbl, 0, r, (ok ? '✓ ' : '✗ ') + (i == 0 ? PanelLabel(seq_c2_exec_tf) + ' ' : '') + (i == 2 ? SeqPoiTxt(qf) : SEQ_LBL.get(i)), kc, rw, L)
-            SeqCell(seq_tbl, 3, r, '+' + str.tostring(w), kc, rw, R)
+            SeqCell(seq_tbl, 0, r, not on ? '·  ' + SEQ_LBL.get(i) : (ok ? '✓ ' : '✗ ') + (i == 0 ? PanelLabel(seq_c2_exec_tf) + ' ' : '') + (i == 2 ? SeqPoiTxt(qf) : SEQ_LBL.get(i)), kc, rw, L)
+            SeqCell(seq_tbl, 3, r, on ? '+' + str.tostring(w) : '--', kc, rw, R)
             mr.push(r * 100 + 2)
             r += 1
     // bottom (Boom only): C3 SETUP lanes, EXECUTION, progress
@@ -2886,14 +2904,19 @@ if barstate.islast and seq_show_input
         SeqCell(seq_tbl, 0, r, 'C3 SETUP' + c3_t, hx, hd, L)
         mr.push(r * 100 + 3)
         r += 1
-        r := SeqRow(seq_tbl, r, mr, '▸ LANE A', wt, ln, as_lbl + ' ▸ ' + ae_lbl, wt, ln, R, '', wt, false)
-        r := SeqRow(seq_tbl, r, mr, a1i + as_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_la, seq_dbias, a_sw) : '', a_sw ? seq_done_input : wt, rw, L, a1t, a1c, true)
-        r := SeqRow(seq_tbl, r, mr, a2i + ae_lbl + ' entry', tx, rw, a_en ? SeqCisdTxt(seq_la, seq_dbias) : '', tx, rw, L, a2t, a2c, true)
-        r := SeqRow(seq_tbl, r, mr, '▸ LANE B', wt, ln, bs_lbl + ' ▸ ' + be_lbl, wt, ln, R, '', wt, false)
-        r := SeqRow(seq_tbl, r, mr, b1i + bs_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_lb, seq_dbias, b_sw) : '', b_sw ? seq_done_input : wt, rw, L, b1t, b1c, true)
-        r := SeqRow(seq_tbl, r, mr, b2i + be_lbl + ' entry', tx, rw, b_en ? SeqCisdTxt(seq_lb, seq_dbias) : '', tx, rw, L, b2t, b2c, true)
-        r := SeqRow(seq_tbl, r, mr, 'EXECUTION', wt, rw, ex_tx, #ffffff, ex_c, C, '', wt, false)
-        r := SeqRow(seq_tbl, r, mr, bar_tx, bar_col, rw, str.tostring(done_n) + ' / 4', wt, rw, R, '', wt, false)
+        if seq_hi
+            SeqCell(seq_tbl, 0, r, '--', wt, rw, C)
+            mr.push(r * 100 + 3)
+            r += 1
+        else
+            r := SeqRow(seq_tbl, r, mr, '▸ LANE A', wt, ln, as_lbl + ' ▸ ' + ae_lbl, wt, ln, R, '', wt, false)
+            r := SeqRow(seq_tbl, r, mr, a1i + as_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_la, seq_dbias, a_sw) : '', a_sw ? seq_done_input : wt, rw, L, a1t, a1c, true)
+            r := SeqRow(seq_tbl, r, mr, a2i + ae_lbl + ' entry', tx, rw, a_en ? SeqCisdTxt(seq_la, seq_dbias) : '', tx, rw, L, a2t, a2c, true)
+            r := SeqRow(seq_tbl, r, mr, '▸ LANE B', wt, ln, bs_lbl + ' ▸ ' + be_lbl, wt, ln, R, '', wt, false)
+            r := SeqRow(seq_tbl, r, mr, b1i + bs_lbl + ' sweep', tx, rw, c2_ok ? SeqC1Txt(seq_lb, seq_dbias, b_sw) : '', b_sw ? seq_done_input : wt, rw, L, b1t, b1c, true)
+            r := SeqRow(seq_tbl, r, mr, b2i + be_lbl + ' entry', tx, rw, b_en ? SeqCisdTxt(seq_lb, seq_dbias) : '', tx, rw, L, b2t, b2c, true)
+            r := SeqRow(seq_tbl, r, mr, 'EXECUTION', wt, rw, ex_tx, #ffffff, ex_c, C, '', wt, false)
+            r := SeqRow(seq_tbl, r, mr, bar_tx, bar_col, rw, str.tostring(done_n) + ' / 4', wt, rw, R, '', wt, false)
     var bool seq_merged = false
     if not seq_merged
         for m in mr
