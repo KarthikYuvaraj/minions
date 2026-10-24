@@ -188,9 +188,6 @@ type Settings
     color entry_zone_bull_color
     color entry_zone_bear_color
     // General settings
-    bool alerts_enabled
-    string fractal_mode
-    string custom_ltf
     string bias
     bool hide_candles
     bool hide_setups
@@ -262,15 +259,12 @@ string group_label              = "Label Settings  ━━━━━━━━━�
 
 // General Settings
 alerts_enabled_input            = input.bool(true, 'Alerts?', group=group_general, tooltip='To turn on the alerts, follow these steps:\n\n1) Make sure that the Alerts? toggle is ON.\n2) Right-click on the indicator on your chart.\n3) Click Add Alert on this indicator.\n4) Choose the Alert Name and confirm by clicking Create.\n\nNOTE: if you change any Settings, delete and re-create the alerts!')
-settings.alerts_enabled         := alerts_enabled_input
 settings.sweep_history          := input.int(4, 'History        ', minval=0, group=group_general, inline='history')
 settings.sweep_visible_only     := input.bool(true, '', tooltip='Number of historical setups to show:\n\n☑ ON: Setups on visible HTF candles always shown. This count adds older setups that scrolled away.\n\n☐ OFF: Only show this many setups total.', inline='history', group=group_general)
 seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 5m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 1H model 15m/1H/4H/D, 4H model 1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
 bool seq_classic                = seq_mode_input == 'Classic'
 fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
-settings.fractal_mode           := fractal_mode_input
 custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
-settings.custom_ltf             := custom_ltf_input
 custom_htf_input                = input.timeframe('60','-', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
 settings.bias                   := input.string('Neutral', 'Bias', options=['Neutral', 'Bullish', 'Bearish'], group=group_general, tooltip='Filter setups by direction:\n\nNeutral: Show both bullish and bearish setups.\nBullish: Only show bullish setups (low sweeps).\nBearish: Only show bearish setups (high sweeps).')
 
@@ -641,6 +635,15 @@ LbOk(int off) =>
     not na(off) and off >= 0 and off <= 4999
 LbC(int off) =>
     na(off) ? 0 : math.max(0, math.min(off, 4999))
+// body top / bottom, low, high of the bar `off` bars back (na beyond the buffer)
+BodyHiAt(int off) =>
+    LbOk(off) ? math.max(open[LbC(off)], close[LbC(off)]) : na
+BodyLoAt(int off) =>
+    LbOk(off) ? math.min(open[LbC(off)], close[LbC(off)]) : na
+LowAt(int off) =>
+    LbOk(off) ? low[LbC(off)] : na
+HighAt(int off) =>
+    LbOk(off) ? high[LbC(off)] : na
 
 RemainingTime(string HTF) =>
     if barstate.isrealtime
@@ -1220,11 +1223,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.proj_end_idx := setup.extreme_bar_idx + 1
                     if settings.proj_type == "Wick"
                         setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
+                        setup.proj_anchor_0 := LowAt(cisd_lookback)
                     else
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                        setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                        setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
+                        setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1293,11 +1296,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.proj_end_idx := setup.extreme_bar_idx + 1
                         if settings.proj_type == "Wick"
                             setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
+                            setup.proj_anchor_0 := LowAt(cisd_lookback)
                         else
                             int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                            setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                            setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
+                            setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1362,11 +1365,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.proj_end_idx := setup.extreme_bar_idx + 1
                     if settings.proj_type == "Wick"
                         setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
+                        setup.proj_anchor_0 := HighAt(cisd_lookback)
                     else
                         int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                        setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                        setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
+                        setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1435,11 +1438,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.proj_end_idx := setup.extreme_bar_idx + 1
                         if settings.proj_type == "Wick"
                             setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
+                            setup.proj_anchor_0 := HighAt(cisd_lookback)
                         else
                             int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                            setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                            setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
+                            setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1471,11 +1474,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                                 setup.proj_end_idx := setup.extreme_bar_idx + 1
                                 if settings.proj_type == "Wick"
                                     setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := (LbOk(cisd_lookback) ? low[LbC(cisd_lookback)] : na)
+                                    setup.proj_anchor_0 := LowAt(cisd_lookback)
                                 else
                                     int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := math.max((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                                    setup.proj_anchor_0 := math.min((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                                    setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
+                                    setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right = time_close(candleSet.settings.htf)
@@ -1508,11 +1511,11 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                                 setup.proj_end_idx := setup.extreme_bar_idx + 1
                                 if settings.proj_type == "Wick"
                                     setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := (LbOk(cisd_lookback) ? high[LbC(cisd_lookback)] : na)
+                                    setup.proj_anchor_0 := HighAt(cisd_lookback)
                                 else
                                     int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := math.min((LbOk(extreme_lookback) ? open[LbC(extreme_lookback)] : na), (LbOk(extreme_lookback) ? close[LbC(extreme_lookback)] : na))
-                                    setup.proj_anchor_0 := math.max((LbOk(cisd_lookback) ? open[LbC(cisd_lookback)] : na), (LbOk(cisd_lookback) ? close[LbC(cisd_lookback)] : na))
+                                    setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
+                                    setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right_bull = time_close(candleSet.settings.htf)
@@ -2440,6 +2443,31 @@ method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool
                     st.be.eT  := na
     st
 
+// Bars to feed: the chart's own bar (own) or the tf candles inside it (request.security_lower_tf)
+SeqBars(bool own, string tf) =>
+    array<int>   t = array.from(time)
+    array<float> o = array.from(open)
+    array<float> h = array.from(high)
+    array<float> l = array.from(low)
+    array<float> c = array.from(close)
+    if not own
+        [bt, bo, bh, bl, bc] = request.security_lower_tf(syminfo.tickerid, tf, [time, open, high, low, close])
+        t := bt
+        o := bo
+        h := bh
+        l := bl
+        c := bc
+    [t, o, h, l, c]
+
+// Feed bars to a lane. fx: execution windows from the feed (window = ewT, or each bar itself when
+// ewT is na; ewEnd = the chart bar ends it); else 1m clock windows.
+method feed(SeqLaneSt st, int dT, array<int> t, array<float> o, array<float> h, array<float> l, array<float> c, bool fx, int ewT, bool ewEnd) =>
+    int n = t.size()
+    if n > 0
+        for i = 0 to n - 1
+            st.upd(dT, t.get(i), o.get(i), h.get(i), l.get(i), c.get(i), i < n - 1 or barstate.isconfirmed, fx ? (na(ewT) ? t.get(i) : ewT) : na, fx and ewEnd)
+    st
+
 // Middle column: sweep row = the C1 candle (open time) that was taken, or the C1 being watched;
 // entry row = time the CISD happened (close of the execution candle that confirmed it)
 // Times in New York time, the same clock as the HTF panel candle labels.
@@ -2492,9 +2520,10 @@ SeqLaneSt seq_la  = seq_lanes.get(0)
 SeqLaneSt seq_lb  = seq_lanes.get(1)
 SeqLaneSt seq_lc2 = seq_lanes.get(2)
 int seq_dT = time(seq_dir_tf)
-// feed bars: Boom 1m, Classic the C2 CISD timeframe (chart bars when the chart is not above it)
-bool   seq_c2only = seq_classic or seq_hi   // only the C2 tracker is fed (on its CISD timeframe)
-string seq_ftf  = seq_c2only ? seq_c2_exec_tf : '1'
+// C2 tracker feed (Boom + Classic): its CISD timeframe — the chart's bars when the chart is not above
+// it, else the CISD-TF candles inside each chart bar. Boom lanes A / B: 1m bars (up to a 1H chart).
+bool   seq_lanes_on = not seq_classic and not seq_hi
+string seq_ftf  = seq_c2_exec_tf
 bool   seq_fch  = timeframe.in_seconds() <= timeframe.in_seconds(seq_ftf)
 string seq_ewtf = seq_fch ? seq_ftf : timeframe.period
 int    seq_ewT  = time(seq_ewtf)
@@ -2506,29 +2535,14 @@ int    seq_ewC  = time_close(seq_ewtf)
 [pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
 array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
 if (seq_show_input or alerts_enabled_input) and seq_tf_ok
-    // Boom: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar);
-    // Classic: the chart's bar, or the C2 CISD-TF candles inside it (request.security_lower_tf)
-    array<int>   seq_lt = array.from(time)
-    array<float> seq_lo = array.from(open)
-    array<float> seq_lh = array.from(high)
-    array<float> seq_ll = array.from(low)
-    array<float> seq_lc = array.from(close)
-    if not seq_fch
-        [lt, lo, lh, ll, lc] = request.security_lower_tf(syminfo.tickerid, seq_ftf, [time, open, high, low, close])
-        seq_lt := lt
-        seq_lo := lo
-        seq_lh := lh
-        seq_ll := ll
-        seq_lc := lc
-    int seq_n = seq_lt.size()
-    if seq_n > 0
-        for i = 0 to seq_n - 1
-            bool cl = i < seq_n - 1 or barstate.isconfirmed
-            if seq_c2only
-                seq_lc2.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), cl, seq_fch ? seq_ewT : seq_lt.get(i), not seq_fch or seq_ewC == time_close)
-            else
-                for ln in seq_lanes
-                    ln.upd(seq_dT, seq_lt.get(i), seq_lo.get(i), seq_lh.get(i), seq_ll.get(i), seq_lc.get(i), cl, na, false)
+    // C2 tracker: the chart's bar, or the C2 CISD-TF candles inside it (no 1m data needed)
+    [ft, fo, fh, fl, fc] = SeqBars(seq_fch, seq_ftf)
+    seq_lc2.feed(seq_dT, ft, fo, fh, fl, fc, true, seq_fch ? seq_ewT : na, not seq_fch or seq_ewC == time_close)
+    // Boom lanes A / B: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar)
+    if seq_lanes_on
+        [mt, mo, mh, ml, mc] = SeqBars(timeframe.in_seconds() <= 60, '1')
+        seq_la.feed(seq_dT, mt, mo, mh, ml, mc, false, na, false)
+        seq_lb.feed(seq_dT, mt, mo, mh, ml, mc, false, na, false)
 
 // ── Setup probability score of a C2 (dir) with C1 = c1H/c1L opened at c1T, C2 = c2H/c2L at c2T ──
 // No-SMT version: no correlated symbol → no SMT / SMT-Fill
