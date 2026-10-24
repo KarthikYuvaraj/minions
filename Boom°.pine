@@ -388,6 +388,39 @@ prev_eq_width                  = input.int(1, 'Width', options=[1,2,3,4], inline
 drawings_type                  = input.string('Both', 'Drawings Type', options=['Both', 'On Chart', 'HTF candle'], group = group_htf, tooltip='On Chart: EQ lines on price chart (setup package).\nHTF candle: EQ on HTF projection (later).\nBoth: chart + projection.', active = prev_eq_show)
 
 // ============================================================================
+// HTF1 Label Settings
+// ============================================================================
+
+htf_label_show_input            = input.bool(true, 'HTF Label     ', group=group_label, inline = 'HTFlabel')
+settings.htf_label_show         := htf_label_show_input
+settings.htf_label_color        := input.color(#0f0f0f, '', group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
+settings.htf_label_size         := input.string(size.large, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
+settings.label_position         := input.string("Top", 'Pos', options=['Both', 'Top', 'Bottom'], group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
+
+htf_timer_show_input            = input.bool(true, 'Remaining Time', inline = 'timer', group=group_label,active = htf_label_show_input)
+settings.htf_timer_show         := htf_timer_show_input
+settings.htf_timer_color        := input.color(#0f0f0f, '', inline = 'timer', group=group_label, active = htf_timer_show_input and htf_label_show_input)
+settings.htf_timer_size         := input.string(size.normal, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'timer', active = htf_timer_show_input and htf_label_show_input)
+
+daily_name_input                = input.bool(true, 'Interval Value', group=group_label, inline = 'dow')
+settings.daily_name             := daily_name_input
+settings.dow_color              := input.color(#0f0f0f, '', group=group_label, inline = 'dow', active = daily_name_input)
+settings.dow_size               := input.string(size.small, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'dow', active = daily_name_input)
+settings.dow_position           := input.string('Bottom', 'Pos', options=['Both', 'Top', 'Bottom'], group=group_label, inline = 'dow', active = daily_name_input)
+
+// ============================================================================
+// HTF panel features — FVG / SMT / PSP (HTF Profiler)
+// ============================================================================
+string group_htf_feat           = "HTF Features  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+htf_fvg_show                    = input.bool(true, 'Enable FVG?', inline = 'htffvg', group = group_htf_feat, tooltip = 'Fair value gaps between three consecutive candles of each HTF panel (HTF Profiler logic).')
+htf_bull_fvg_color              = input.color(#0c3299, '', inline = 'htffvg', group = group_htf_feat, active = htf_fvg_show)
+htf_bear_fvg_color              = input.color(#b22833, '', inline = 'htffvg', group = group_htf_feat, active = htf_fvg_show)
+htf_smt_show                    = input.bool(true, 'Enable SMT?', inline = 'htf_smt', group = group_htf_feat, tooltip = 'SMT between consecutive HTF panel candles vs the SMT pairs: one symbol makes a higher high / lower low and the other does not. Hidden once a newer panel candle trades through the SMT extreme.')
+htf_smt_bull_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
+htf_smt_bear_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
+htf_psp_show                    = input.bool(true, 'Enable PSP?', group = group_htf_feat, tooltip = 'PSP: the C2 body closes opposite in colour to the pair 1 candle (MNQ → MES). A doji on either side is no PSP. Label: C2+PSP (panels; chart = model HTF).')
+
+// ============================================================================
 // Model Settings
 // ============================================================================
 
@@ -405,6 +438,9 @@ settings.show_c4_lbl            := input.bool(true, 'C4', inline='c2', group=gro
 c_lbl_loc_input                 = input.string('Both', 'C-Labels On', options=['Chart', 'Panel', 'Both'], inline='c_lbl_loc', group=group_sweep, tooltip='Chart: C2 / C3 / C4 labels on price (as before).\nPanel: C1 / C2 / C3 / C4 on the HTF panel that hosts the Fractal model (latest formation only, Profiler style).\nBoth: chart + panel.\nThe C2 / C3 / C4 toggles apply to both places (C1 follows C2).')
 c_lbl_latest_input              = input.bool(true, 'Chart: Latest Formation Only', inline='c_lbl_latest', group=group_sweep, active = c_lbl_loc_input != 'Panel', tooltip='On: the chart shows the C2 / C3 / C4 labels of the latest formation only (the same one labelled on the model panel), so older setups no longer stack extra C2 / C3 / C4 labels or C3 / C4 entry-zone boxes.\nOff: every setup kept by History shows its labels and entry-zone boxes (previous behaviour).\nThe HTF1 / HTF3 panel labels never draw on chart candles.')
 pnl_other_clbl_input            = input.bool(true, 'C1–C4 on Other Panels', inline='c_lbl_other', group=group_sweep, active = c_lbl_loc_input != 'Chart', tooltip='On / off for the C1–C4 labels on the HTF panels that do not host the Fractal model. The model panel follows C-Labels On.')
+pnl_clbl_conf                   = input.string('Live', 'Panel C-Labels', options=['Live', 'Confirmed'], inline='c_lbl_mode', group=group_sweep, active = c_lbl_loc_input != 'Chart', tooltip='HTF panels. Live: C2 on the sweep.\nConfirmed: model panel = C2 confirmed by the table (●); if C3–C5 takes its extreme → live sweep.') == 'Confirmed'
+pnl_dot_color                   = input.color(#388e3c, 'C2 Confirmed ●', inline='c2dot', group=group_sweep, active = c_lbl_loc_input != 'Chart')
+pnl_dot_size                    = input.string('Medium', '', options=['Small', 'Medium', 'Large'], inline='c2dot', group=group_sweep, active = c_lbl_loc_input != 'Chart', tooltip='Colour and size of the dot after a C2 the table confirmed (model panel).')
 bool c_lbl_chart                = c_lbl_loc_input != 'Panel'
 bool c_lbl_panel                = c_lbl_loc_input != 'Chart'
 cisd_show_input                 = input.bool(true, 'Show CISD     ', inline='cisd', group=group_sweep)
@@ -453,12 +489,10 @@ if proj_deviations.size() == 0
 // ============================================================================
 
 // --- Liquidity Suite Groups ---
-string LQ_GRP_GEN  = "Liq Suite: General  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 string LQ_GRP_TDO  = "Liq Suite: Day Open  ━━━━━━━━━━━━━━━━━━━━━━━━"
 string LQ_GRP_PDW  = "Liq Suite: PDH/PDL - PWH/PWL - PMH/PML  ━━━━━━━━━"
 
-// --- General ---
-lq_session_tz = input.string("America/New_York", "Timezone", group=LQ_GRP_GEN)
+string lq_session_tz = "America/New_York"   // fixed session timezone
 
 // --- True Day Open ---
 lq_use_true_open  = input.bool(true, "Day Open", group=LQ_GRP_TDO, inline="lq_tdo_top")
@@ -493,39 +527,6 @@ lq_pm_width = input.int(1, "Width", inline="lq_pmc", group=LQ_GRP_PDW, minval=1,
 lq_pm_eq_show  = input.bool(false, "PM EQ", inline="lq_pme", group=LQ_GRP_PDW, active=lq_show_pm)
 lq_pm_eq_color = input.color(#7b1fa2, "", inline="lq_pme", group=LQ_GRP_PDW, active=lq_show_pm and lq_pm_eq_show)
 lq_pm_eq_style = input.string("Dotted", "", inline="lq_pme", group=LQ_GRP_PDW, options=["Solid", "Dashed", "Dotted"], active=lq_show_pm and lq_pm_eq_show)
-
-// ============================================================================
-// HTF1 Label Settings
-// ============================================================================
-
-htf_label_show_input            = input.bool(true, 'HTF Label     ', group=group_label, inline = 'HTFlabel')
-settings.htf_label_show         := htf_label_show_input
-settings.htf_label_color        := input.color(#0f0f0f, '', group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
-settings.htf_label_size         := input.string(size.large, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
-settings.label_position         := input.string("Top", 'Pos', options=['Both', 'Top', 'Bottom'], group=group_label, inline = 'HTFlabel', active = htf_label_show_input)
-
-htf_timer_show_input            = input.bool(true, 'Remaining Time', inline = 'timer', group=group_label,active = htf_label_show_input)
-settings.htf_timer_show         := htf_timer_show_input
-settings.htf_timer_color        := input.color(#0f0f0f, '', inline = 'timer', group=group_label, active = htf_timer_show_input and htf_label_show_input)
-settings.htf_timer_size         := input.string(size.normal, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'timer', active = htf_timer_show_input and htf_label_show_input)
-
-daily_name_input                = input.bool(true, 'Interval Value', group=group_label, inline = 'dow')
-settings.daily_name             := daily_name_input
-settings.dow_color              := input.color(#0f0f0f, '', group=group_label, inline = 'dow', active = daily_name_input)
-settings.dow_size               := input.string(size.small, '', [size.tiny, size.small, size.normal, size.large, size.huge], group=group_label, inline = 'dow', active = daily_name_input)
-settings.dow_position           := input.string('Bottom', 'Pos', options=['Both', 'Top', 'Bottom'], group=group_label, inline = 'dow', active = daily_name_input)
-
-// ============================================================================
-// HTF panel features — FVG / SMT / PSP (HTF Profiler)
-// ============================================================================
-string group_htf_feat           = "HTF Features  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-htf_fvg_show                    = input.bool(true, 'Enable FVG?', inline = 'htffvg', group = group_htf_feat, tooltip = 'Fair value gaps between three consecutive candles of each HTF panel (HTF Profiler logic).')
-htf_bull_fvg_color              = input.color(#0c3299, '', inline = 'htffvg', group = group_htf_feat, active = htf_fvg_show)
-htf_bear_fvg_color              = input.color(#b22833, '', inline = 'htffvg', group = group_htf_feat, active = htf_fvg_show)
-htf_smt_show                    = input.bool(true, 'Enable SMT?', inline = 'htf_smt', group = group_htf_feat, tooltip = 'SMT between consecutive HTF panel candles vs the SMT pairs: one symbol makes a higher high / lower low and the other does not. Hidden once a newer panel candle trades through the SMT extreme.')
-htf_smt_bull_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
-htf_smt_bear_color              = input.color(#0f0f0f, '', inline = 'htf_smt', group = group_htf_feat, active = htf_smt_show)
-htf_psp_show                    = input.bool(true, 'Enable PSP?', group = group_htf_feat, tooltip = 'PSP: the C2 body closes opposite in colour to the pair 1 candle (MNQ → MES). A doji on either side is no PSP. Label: C2+PSP (panels; chart = model HTF).')
 
 // ============================================================================
 // SMT on chart — GXV SMT engine (HTF Profiler)
@@ -652,7 +653,7 @@ seq_wait_input                   = input.color(#636363, 'Not yet', inline = 'seq
 seq_bull_input                   = input.color(#0c3299, 'Bull / Bear', inline = 'seq_c3', group = group_seq, active = seq_show_input)
 seq_bear_input                   = input.color(#b22833, '', inline = 'seq_c3', group = group_seq, active = seq_show_input)
 seq_cand_c3_input                = input.color(#388e3c, 'Candle: C3', inline = 'seq_c4', group = group_seq, active = seq_show_input)
-seq_cand_other_input             = input.color(#636363, 'Other', inline = 'seq_c4', group = group_seq, active = seq_show_input, tooltip = 'LIVE CANDLE: C3 / C4 / C5 after a valid C2 close, then WAITING C2. C3 that takes the C2 extreme against the bias → WAITING C2.')
+seq_cand_other_input             = input.color(#636363, 'Other', inline = 'seq_c4', group = group_seq, active = seq_show_input, tooltip = 'LIVE CANDLE: C3 / C4 / C5 after a valid C2 close, then WAITING C2. C3–C5 that takes the C2 extreme against the bias → WAITING C2.')
 seq_chk_input                    = input.bool(true, 'Score Checklist', group = group_seq, active = seq_show_input, tooltip = 'Show the C2 QUALITY checklist.\nCISD in C2 +75 · inside 75% of C1 +5 · POI / SMT-Fill +10 · SMT +5 · POI + SMT +5\nLOW 75–80 · HIGH 85–90 · BOOM 95–100 · no CISD = INVALID')
 seq_grace_input                  = input.bool(false, 'C2 CISD in C3', group = group_seq, active = seq_show_input and not seq_classic, tooltip = 'Accept the C2 CISD in the first 75% of C3 (1H: 45m, 4H: 3h).')
 seq_boom_input                   = input.color(#1b5e20, 'Grade: Boom', inline = 'seq_g', group = group_seq, active = seq_show_input)
@@ -767,15 +768,19 @@ LbOk(int off) =>
     not na(off) and off >= 0 and off <= 4999
 LbC(int off) =>
     na(off) ? 0 : math.max(0, math.min(off, 4999))
-// body top / bottom, low, high of the bar `off` bars back (na beyond the buffer)
-BodyHiAt(int off) =>
-    LbOk(off) ? math.max(open[LbC(off)], close[LbC(off)]) : na
-BodyLoAt(int off) =>
-    LbOk(off) ? math.min(open[LbC(off)], close[LbC(off)]) : na
-LowAt(int off) =>
-    LbOk(off) ? low[LbC(off)] : na
-HighAt(int off) =>
-    LbOk(off) ? high[LbC(off)] : na
+// Projection anchors of a setup from its CISD (bull: high / body top at the CISD candle, body bottom at
+// the extreme candle; bear mirrored); na beyond the 5000-bar buffer
+SetProj(Setup setup, bool bull) =>
+    int cl = bar_index - setup.cisd_start_idx
+    int el = bar_index - setup.extreme_bar_idx
+    int c = LbC(cl)
+    int e = LbC(el)
+    bool wk = settings.proj_type == "Wick"
+    setup.proj_start_idx := setup.cisd_start_idx
+    setup.proj_end_idx := setup.extreme_bar_idx + 1
+    setup.proj_anchor_1 := wk ? setup.tracked_extreme : not LbOk(el) ? na : bull ? math.min(open[e], close[e]) : math.max(open[e], close[e])
+    setup.proj_anchor_0 := not LbOk(cl) ? na : wk ? (bull ? high[c] : low[c]) : bull ? math.max(open[c], close[c]) : math.min(open[c], close[c])
+    0
 
 RemainingTime(string HTF) =>
     if barstate.isrealtime
@@ -1350,16 +1355,7 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.cisd_end_idx := bar_index
                 if setup.is_confirmed and setup.has_cisd and not setup.cisd_triggered and not na(setup.cisd_end_idx)
                     setup.cisd_triggered := true
-                    int cisd_lookback = bar_index - setup.cisd_start_idx
-                    setup.proj_start_idx := setup.cisd_start_idx
-                    setup.proj_end_idx := setup.extreme_bar_idx + 1
-                    if settings.proj_type == "Wick"
-                        setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := LowAt(cisd_lookback)
-                    else
-                        int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
-                        setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
+                    SetProj(setup, false)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1368,71 +1364,36 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.is_invalid := true
                         StopICDetection(setup)
                         candleSet.setups.unshift(setup)
-                        Candle old_c2 = candleSet.candles.get(1)
-                        Setup new_setup = Setup.new()
-                        new_setup.is_bullish := false
-                        new_setup.is_confirmed := false
-                        new_setup.is_post_c2 := false
-                        new_setup.sweep_price := setup.c2_extreme
-                        new_setup.sweep_ltf_idx := old_c2.h_idx
-                        new_setup.sweep_bar_idx := bar_index
-                        new_setup.swept_candle_idx := setup.htf_candle_idx
-                        new_setup.htf_candle_idx := candleSet.candles.first().o_idx
-                        new_setup.ltf_end_idx := bar_index + 50
-                        new_setup.c2_x := bar_index
-                        new_setup.c2_y := high
-                        new_setup.htf_count := 1
-                        new_setup.tracked_extreme := high
-                        new_setup.extreme_bar_idx := bar_index
-                        [cisd_price_inv, cisd_idx_inv] = FindCISDLevel(bar_index, 1)
-                        if not na(cisd_price_inv)
-                            new_setup.cisd_level := cisd_price_inv
-                            new_setup.cisd_start_idx := cisd_idx_inv
-                            new_setup.has_cisd := true
-                        if close < new_setup.sweep_price
-                            new_setup.is_confirmed := true
-                        candleSet.live_bearish := new_setup
-                        setup_replaced := true
-                    else
-                        Candle old_c2 = candleSet.candles.get(1)
-                        Setup new_setup = Setup.new()
-                        new_setup.is_bullish := false
-                        new_setup.is_confirmed := false
-                        new_setup.is_post_c2 := false
-                        new_setup.sweep_price := setup.c2_extreme
-                        new_setup.sweep_ltf_idx := old_c2.h_idx
-                        new_setup.sweep_bar_idx := bar_index
-                        new_setup.swept_candle_idx := setup.htf_candle_idx
-                        new_setup.htf_candle_idx := candleSet.candles.first().o_idx
-                        new_setup.ltf_end_idx := bar_index + 50
-                        new_setup.c2_x := bar_index
-                        new_setup.c2_y := high
-                        new_setup.htf_count := 1
-                        new_setup.tracked_extreme := high
-                        new_setup.extreme_bar_idx := bar_index
-                        [cisd_price, cisd_idx] = FindCISDLevel(bar_index, 1)
-                        if not na(cisd_price)
-                            new_setup.cisd_level := cisd_price
-                            new_setup.cisd_start_idx := cisd_idx
-                            new_setup.has_cisd := true
-                        if close < new_setup.sweep_price
-                            new_setup.is_confirmed := true
-                        candleSet.live_bearish := new_setup
-                        setup_replaced := true
+                    Candle old_c2 = candleSet.candles.get(1)
+                    Setup new_setup = Setup.new()
+                    new_setup.is_bullish := false
+                    new_setup.is_confirmed := false
+                    new_setup.is_post_c2 := false
+                    new_setup.sweep_price := setup.c2_extreme
+                    new_setup.sweep_ltf_idx := old_c2.h_idx
+                    new_setup.sweep_bar_idx := bar_index
+                    new_setup.swept_candle_idx := setup.htf_candle_idx
+                    new_setup.htf_candle_idx := candleSet.candles.first().o_idx
+                    new_setup.ltf_end_idx := bar_index + 50
+                    new_setup.c2_x := bar_index
+                    new_setup.c2_y := high
+                    new_setup.htf_count := 1
+                    new_setup.tracked_extreme := high
+                    new_setup.extreme_bar_idx := bar_index
+                    [cisd_price, cisd_idx] = FindCISDLevel(bar_index, 1)
+                    if not na(cisd_price)
+                        new_setup.cisd_level := cisd_price
+                        new_setup.cisd_start_idx := cisd_idx
+                        new_setup.has_cisd := true
+                    if close < new_setup.sweep_price
+                        new_setup.is_confirmed := true
+                    candleSet.live_bearish := new_setup
+                    setup_replaced := true
                 if not setup_replaced
                     if setup.has_cisd and not setup.cisd_triggered and close < setup.cisd_level
                         setup.cisd_triggered := true
                         setup.cisd_end_idx := bar_index
-                        int cisd_lookback = bar_index - setup.cisd_start_idx
-                        setup.proj_start_idx := setup.cisd_start_idx
-                        setup.proj_end_idx := setup.extreme_bar_idx + 1
-                        if settings.proj_type == "Wick"
-                            setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := LowAt(cisd_lookback)
-                        else
-                            int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
-                            setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
+                        SetProj(setup, false)
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1492,16 +1453,7 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     setup.cisd_end_idx := bar_index
                 if setup.is_confirmed and setup.has_cisd and not setup.cisd_triggered and not na(setup.cisd_end_idx)
                     setup.cisd_triggered := true
-                    int cisd_lookback = bar_index - setup.cisd_start_idx
-                    setup.proj_start_idx := setup.cisd_start_idx
-                    setup.proj_end_idx := setup.extreme_bar_idx + 1
-                    if settings.proj_type == "Wick"
-                        setup.proj_anchor_1 := setup.tracked_extreme
-                        setup.proj_anchor_0 := HighAt(cisd_lookback)
-                    else
-                        int extreme_lookback = bar_index - setup.extreme_bar_idx
-                        setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
-                        setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
+                    SetProj(setup, true)
                 ICUpdate(setup)
             else
                 bool setup_replaced = false
@@ -1510,71 +1462,36 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                         setup.is_invalid := true
                         StopICDetection(setup)
                         candleSet.setups.unshift(setup)
-                        Candle old_c2 = candleSet.candles.get(1)
-                        Setup new_setup = Setup.new()
-                        new_setup.is_bullish := true
-                        new_setup.is_confirmed := false
-                        new_setup.is_post_c2 := false
-                        new_setup.sweep_price := setup.c2_extreme
-                        new_setup.sweep_ltf_idx := old_c2.l_idx
-                        new_setup.sweep_bar_idx := bar_index
-                        new_setup.swept_candle_idx := setup.htf_candle_idx
-                        new_setup.htf_candle_idx := candleSet.candles.first().o_idx
-                        new_setup.ltf_end_idx := bar_index + 50
-                        new_setup.c2_x := bar_index
-                        new_setup.c2_y := low
-                        new_setup.htf_count := 1
-                        new_setup.tracked_extreme := low
-                        new_setup.extreme_bar_idx := bar_index
-                        [cisd_price_inv, cisd_idx_inv] = FindCISDLevel(bar_index, -1)
-                        if not na(cisd_price_inv)
-                            new_setup.cisd_level := cisd_price_inv
-                            new_setup.cisd_start_idx := cisd_idx_inv
-                            new_setup.has_cisd := true
-                        if close > new_setup.sweep_price
-                            new_setup.is_confirmed := true
-                        candleSet.live_bullish := new_setup
-                        setup_replaced := true
-                    else
-                        Candle old_c2 = candleSet.candles.get(1)
-                        Setup new_setup = Setup.new()
-                        new_setup.is_bullish := true
-                        new_setup.is_confirmed := false
-                        new_setup.is_post_c2 := false
-                        new_setup.sweep_price := setup.c2_extreme
-                        new_setup.sweep_ltf_idx := old_c2.l_idx
-                        new_setup.sweep_bar_idx := bar_index
-                        new_setup.swept_candle_idx := setup.htf_candle_idx
-                        new_setup.htf_candle_idx := candleSet.candles.first().o_idx
-                        new_setup.ltf_end_idx := bar_index + 50
-                        new_setup.c2_x := bar_index
-                        new_setup.c2_y := low
-                        new_setup.htf_count := 1
-                        new_setup.tracked_extreme := low
-                        new_setup.extreme_bar_idx := bar_index
-                        [cisd_price, cisd_idx] = FindCISDLevel(bar_index, -1)
-                        if not na(cisd_price)
-                            new_setup.cisd_level := cisd_price
-                            new_setup.cisd_start_idx := cisd_idx
-                            new_setup.has_cisd := true
-                        if close > new_setup.sweep_price
-                            new_setup.is_confirmed := true
-                        candleSet.live_bullish := new_setup
-                        setup_replaced := true
+                    Candle old_c2 = candleSet.candles.get(1)
+                    Setup new_setup = Setup.new()
+                    new_setup.is_bullish := true
+                    new_setup.is_confirmed := false
+                    new_setup.is_post_c2 := false
+                    new_setup.sweep_price := setup.c2_extreme
+                    new_setup.sweep_ltf_idx := old_c2.l_idx
+                    new_setup.sweep_bar_idx := bar_index
+                    new_setup.swept_candle_idx := setup.htf_candle_idx
+                    new_setup.htf_candle_idx := candleSet.candles.first().o_idx
+                    new_setup.ltf_end_idx := bar_index + 50
+                    new_setup.c2_x := bar_index
+                    new_setup.c2_y := low
+                    new_setup.htf_count := 1
+                    new_setup.tracked_extreme := low
+                    new_setup.extreme_bar_idx := bar_index
+                    [cisd_price, cisd_idx] = FindCISDLevel(bar_index, -1)
+                    if not na(cisd_price)
+                        new_setup.cisd_level := cisd_price
+                        new_setup.cisd_start_idx := cisd_idx
+                        new_setup.has_cisd := true
+                    if close > new_setup.sweep_price
+                        new_setup.is_confirmed := true
+                    candleSet.live_bullish := new_setup
+                    setup_replaced := true
                 if not setup_replaced
                     if setup.has_cisd and not setup.cisd_triggered and close > setup.cisd_level
                         setup.cisd_triggered := true
                         setup.cisd_end_idx := bar_index
-                        int cisd_lookback = bar_index - setup.cisd_start_idx
-                        setup.proj_start_idx := setup.cisd_start_idx
-                        setup.proj_end_idx := setup.extreme_bar_idx + 1
-                        if settings.proj_type == "Wick"
-                            setup.proj_anchor_1 := setup.tracked_extreme
-                            setup.proj_anchor_0 := HighAt(cisd_lookback)
-                        else
-                            int extreme_lookback = bar_index - setup.extreme_bar_idx
-                            setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
-                            setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
+                        SetProj(setup, true)
                         setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                         TrySetEntryZoneC3(setup)
                 if not setup_replaced
@@ -1601,16 +1518,7 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     if setup.htf_count >= 2
                         if setup.cisd_triggered
                             if na(setup.proj_anchor_0) and setup.has_cisd
-                                int cisd_lookback = bar_index - setup.cisd_start_idx
-                                setup.proj_start_idx := setup.cisd_start_idx
-                                setup.proj_end_idx := setup.extreme_bar_idx + 1
-                                if settings.proj_type == "Wick"
-                                    setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := LowAt(cisd_lookback)
-                                else
-                                    int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := BodyHiAt(extreme_lookback)
-                                    setup.proj_anchor_0 := BodyLoAt(cisd_lookback)
+                                SetProj(setup, false)
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right = time_close(candleSet.settings.htf)
@@ -1638,16 +1546,7 @@ method Monitor(CandleSet candleSet, bool isNewHTFCandleArg) =>
                     if setup.htf_count >= 2
                         if setup.cisd_triggered
                             if na(setup.proj_anchor_0) and setup.has_cisd
-                                int cisd_lookback = bar_index - setup.cisd_start_idx
-                                setup.proj_start_idx := setup.cisd_start_idx
-                                setup.proj_end_idx := setup.extreme_bar_idx + 1
-                                if settings.proj_type == "Wick"
-                                    setup.proj_anchor_1 := setup.tracked_extreme
-                                    setup.proj_anchor_0 := HighAt(cisd_lookback)
-                                else
-                                    int extreme_lookback = bar_index - setup.extreme_bar_idx
-                                    setup.proj_anchor_1 := BodyLoAt(extreme_lookback)
-                                    setup.proj_anchor_0 := BodyHiAt(cisd_lookback)
+                                SetProj(setup, true)
                             setup.liq_end_time := (time_close(candleSet.settings.htf) + timeframe.in_seconds(candleSet.settings.htf) * 1000)
                             setup.ez_c3_right_time := time
                             int ez_c4_right_bull = time_close(candleSet.settings.htf)
@@ -1912,7 +1811,7 @@ method DrawLabels(CandleSet candleSet, int offset) =>
         top = CandleSetHigh(candleSet.candles, 0)
         bottom = CandleSetLow(candleSet.candles, top)
         left = bar_index + offset + (settings.width + 1) * (size - 1) / 2
-        string lbl_text = HTFName(candleSet.settings.htf)
+        string lbl_text = '✦ ' + HTFName(candleSet.settings.htf)
         if settings.htf_timer_show
             lbl_text := lbl_text + '\n\n(' + RemainingTime(candleSet.settings.htf) + ')'
         if settings.label_position == 'Both' or settings.label_position == 'Top'
@@ -2295,41 +2194,52 @@ DrawICCisd() =>
 PanelCLabel(Candle c, string txt, bool bull, color col) =>
     bool dow_same_side = settings.daily_name and c.dow != '' and (settings.dow_position == 'Both' or (bull ? settings.dow_position == 'Bottom' : settings.dow_position == 'Top'))
     float pad = math.max(math.abs(c.h - c.l) * 0.012, syminfo.mintick * 3)
-    float y = bull ? c.l - pad : c.h + pad
-    string t = dow_same_side ? (bull ? '\n' + txt : txt + '\n') : txt
-    bin.labels.push(label.new(c.wick_x, y, t, color = color_transparent, textcolor = col, style = bull ? label.style_label_up : label.style_label_down, size = settings.c2_size))
+    bin.labels.push(label.new(c.wick_x, bull ? c.l - pad : c.h + pad, dow_same_side ? (bull ? '\n' + txt : txt + '\n') : txt, color = color_transparent, textcolor = col, style = bull ? label.style_label_up : label.style_label_down, size = settings.c2_size, text_font_family = font.family_monospace))
+
+// C1–C4 labels around the C2 at index best of a panel (C1 = the candle before it); dot = the table's
+// confirmed C2 → a green ● right after its text (no-break spaces keep the padding, monospace)
+PanelCLabelsAt(array<Candle> arr, int best, bool bull, bool dot) =>
+    if best >= 0
+        for j = 1 to -2
+            int idx = best + j
+            if idx >= 0 and idx < arr.size() and (j >= 0 ? settings.show_c2_lbl : j == -1 ? settings.show_c3_lbl : settings.show_c4_lbl)
+                string t = j == 1 ? 'C1' : j == 0 ? 'C2' + PspTag(arr, best) : 'C' + str.tostring(2 - j)
+                for k = 0 to (j == 0 and dot ? 1 : 0)
+                    PanelCLabel(arr.get(idx), k == 0 ? t : str.repeat(' ', str.length(t) + (pnl_dot_size == 'Large' ? 4 : 3)) + (pnl_dot_size == 'Small' ? '•' : pnl_dot_size == 'Large' ? '⬤' : '●'), bull, k == 0 ? settings.c2_color : pnl_dot_color)
+    0
 
 // C1–C4 labels on every HTF panel (model panel included): the latest C1 → C2 sweep that is still
 // standing, forming C2 included (live sweep) — same rule as the panel sweep lines. Uses the C2 / C3 / C4
 // toggles, label color / size and 'C-Labels On' (Panel / Both); on = 'C1–C4 on Other Panels' for the
 // panels that do not host the model.
-DrawPanelCLabelsPreview(array<Candle> arr, bool on) =>
+var array<int> NO_HIST = array.new<int>()
+// hist: confirmed C2s (open time, + bull / - bear), hMs = their candle length → the ● dot on a labelled C2
+DrawPanelCLabelsPreview(array<Candle> arr, bool on, array<int> hist, int hMs, bool fBull, int force) =>
     int n = arr.size()
     if c_lbl_panel and on and not settings.hide_setups and n >= 2
-        int best = -1
-        bool best_bull = false
-        for i = 0 to n - 2
-            Candle c2 = arr.get(i)
-            Candle c1 = arr.get(i + 1)
-            bool bear = c2.h > c1.h and c2.c < c1.h and (settings.bias == 'Neutral' or settings.bias == 'Bearish')
-            bool bull = c2.l < c1.l and c2.c > c1.l and (settings.bias == 'Neutral' or settings.bias == 'Bullish')
-            if i > 0
-                for k = 0 to i - 1
-                    Candle nw = arr.get(k)
-                    bear := bear and not (nw.h > c2.h)
-                    bull := bull and not (nw.l < c2.l)
-            if (i > 0 or settings.sweep_live) and (bear or bull)
-                best := i
-                best_bull := bull and bear ? c2.c > c2.o : bull
-                break
+        int best = force
+        bool best_bull = fBull
+        if force < 0
+            for i = 0 to n - 2
+                Candle c2 = arr.get(i)
+                Candle c1 = arr.get(i + 1)
+                bool bear = c2.h > c1.h and c2.c < c1.h and (settings.bias == 'Neutral' or settings.bias == 'Bearish')
+                bool bull = c2.l < c1.l and c2.c > c1.l and (settings.bias == 'Neutral' or settings.bias == 'Bullish')
+                if i > 0
+                    for k = 0 to i - 1
+                        Candle nw = arr.get(k)
+                        bear := bear and not (nw.h > c2.h)
+                        bull := bull and not (nw.l < c2.l)
+                if (i > 0 or settings.sweep_live) and (bear or bull)
+                    best := i
+                    best_bull := bull and bear ? c2.c > c2.o : bull
+                    break
+        bool dot = false
         if best >= 0
-            if settings.show_c2_lbl
-                PanelCLabel(arr.get(best + 1), 'C1', best_bull, settings.c2_color)
-                PanelCLabel(arr.get(best), 'C2' + PspTag(arr, best), best_bull, settings.c2_color)
-            if settings.show_c3_lbl and best >= 1
-                PanelCLabel(arr.get(best - 1), 'C3', best_bull, settings.c2_color)
-            if settings.show_c4_lbl and best >= 2
-                PanelCLabel(arr.get(best - 2), 'C4', best_bull, settings.c2_color)
+            int ot = arr.get(best).o_time
+            for t in hist
+                dot := dot or (math.abs(t) <= ot and ot < math.abs(t) + hMs and (t > 0) == best_bull)
+        PanelCLabelsAt(arr, best, best_bull, dot)
     0
 
 // Draws the Fractal model's candles as a panel starting at bar x. Returns the panel's right edge.
@@ -3334,14 +3244,12 @@ if barstate.islast or barstate.isrealtime
                 else if parr.size() > 0
                     PanelFeatures(parr, p == 1 ? pp1_1 : p == 2 ? pp2_1 : pp3_1, p == 1 ? pp1_2 : p == 2 ? pp2_2 : pp3_2, corr_pair1_ok, corr_pair2_ok)
                     x := DrawExtraCluster(parr, x, ptf) + pnl_gap_input
-                    DrawPanelCLabelsPreview(parr, pnl_other_clbl_input)
+                    DrawPanelCLabelsPreview(parr, pnl_other_clbl_input, NO_HIST, 0, false, -1)
     if valid_htf
         htf.DrawVTHLLines()
         if not settings.hide_setups
             htf.DrawSetups()
             DrawICCisd()
-            if c_lbl_panel and settings.model_on_panel
-                DrawPanelCLabelsPreview(htf.candles, true)
 
 // ============================================================================
 // Sequence table — engine
@@ -3804,7 +3712,10 @@ var int   seq_bias  = 0
 var int   seq_cnum  = 0     // 3 = C3, 4 = C4, … counted from the latest valid C2 (0 = none yet)
 var int   seq_dbias = 0     // bias / candle number of the candle on the chart
 var int   seq_dcnum = 0
-var bool  seq_dBrk  = false // C3 took the C2 extreme against the bias → potential new C2, no longer C3
+var bool  seq_dBrk  = false // C3–C5 took the C2 extreme against the bias → that C2 is invalid (WAITING C2)
+var float seq_c2X   = na    // protected extreme of the latest confirmed C2 (bull: its low, bear: its high)
+var bool  seq_c2Dead = false // the latest confirmed C2 was invalidated
+var array<int> seq_c2H = array.new<int>()   // last 10 confirmed C2s: open time (+ bull / - bear)
 var bool  seq_lastC2 = false // the candle on the chart has closed as a valid C2
 var SeqSc seq_scF = SeqScNew()
 var SeqSc seq_scD = SeqScNew() // score of the C2 behind the candle on the chart
@@ -3837,10 +3748,13 @@ for k = 0 to 1
             seq_scHas  := true
             seq_lastC2 := true
             seq_c2T    := seq_dO
+            seq_c2X    := d == 1 ? seq_dL : seq_dH
+            seq_c2Dead := false
+            seq_c2H.unshift(d == 1 ? seq_dO : -seq_dO)
             if alert_c2_input and SeqBiasOk(d)
                 seq_alert.push(SeqAlertHead(d) + ' C2 closed + ' + PanelLabel(seq_c2_exec_tf) + ' CISD (C2 ' + SeqAlertT(seq_dO) + ')')
         else
-            seq_cnum := seq_cnum > 0 ? seq_cnum + 1 : 0
+            seq_cnum := seq_cnum > 0 and not seq_dBrk ? seq_cnum + 1 : 0   // an invalidated C2 stops the count
             if d != 0 and seq_gMs > 0
                 seq_pDir := d
                 seq_pF   := f
@@ -3869,6 +3783,10 @@ for k = 0 to 1
             seq_dH := math.max(seq_dH, high)
             seq_dL := math.min(seq_dL, low)
             seq_dC := close
+        // C3–C5 that takes the C2's protected extreme (bull: C2 low) invalidates that C2
+        if seq_dcnum >= 3 and seq_dcnum <= 5 and seq_dbias != 0 and (seq_dbias == 1 ? seq_dL < seq_c2X : seq_dH > seq_c2X)
+            seq_dBrk   := true
+            seq_c2Dead := true
         // C2 QUALITY live: the candle took the previous low (▲) / high (▼); both → its colour
         if seq_tf_ok and barstate.islast and not seq_dEval
             bool tL = seq_dL < seq_pcL
@@ -3892,14 +3810,30 @@ if seq_tf_ok and not seq_dEval
             seq_scD   := seq_pF
             seq_scHas := true
             seq_c2T   := seq_pT
+            seq_c2X   := seq_pDir == 1 ? seq_pcL : seq_pcH
+            seq_c2Dead := false
+            seq_c2H.unshift(seq_pDir == 1 ? seq_pT : -seq_pT)
             if alert_c2_input and SeqBiasOk(seq_pDir)
                 seq_alert.push(SeqAlertHead(seq_pDir) + ' C2 + ' + PanelLabel(seq_c2_exec_tf) + ' CISD in C3 (C2 ' + SeqAlertT(seq_pT) + ')')
             seq_pDir  := 0
         else if na(g) or g.lk or time_close > seq_dO + seq_gMs
             seq_pDir := 0
-    // C3 that takes the C2 extreme against the bias (bullish: C2 low) is a potential new C2
-    if seq_dcnum == 3
-        seq_dBrk := seq_dbias == 1 ? seq_dL < seq_pcL : seq_dH > seq_pcH
+
+while seq_c2H.size() > 10
+    seq_c2H.pop()
+
+// Model panel C-labels (after the sequence engine): a C2 the table confirmed (still standing) gets the ● dot.
+// Confirmed: that C2 while its extreme holds, else (invalidated) the live sweep; Live: the live sweep.
+if (barstate.islast or barstate.isrealtime) and valid_htf and c_lbl_panel and settings.model_on_panel and not settings.hide_setups
+    int ci = -1
+    if not na(seq_c2T) and seq_bias != 0 and not seq_c2Dead and SeqBiasOk(seq_bias)
+        for [i, c] in htf.candles
+            if c.o_time >= seq_c2T and c.o_time < seq_c2T + seq_ms * 1000
+                ci := i
+                break
+    bool live = not pnl_clbl_conf or seq_c2Dead
+    if live or ci >= 0
+        DrawPanelCLabelsPreview(htf.candles, true, seq_c2H, seq_ms * 1000, seq_bias == 1, live ? -1 : ci)
 
 if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // a lane only counts for the sequence candle on the chart, in the bias it opened with; after its
@@ -3916,7 +3850,7 @@ if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // alerts (Boom): each new C1 sweep / entry CISD of a lane while the table counts it
     // ('Conditions: C3 Only' on → only in C3)
     var array<int> seq_alId = array.from(0, 0, 0, 0)    // last alerted sweep / CISD time: A sweep, A CISD, B sweep, B CISD
-    bool   seq_ok  = not seq_classic and not seq_hi and seq_dbias != 0 and (not seq_c3_only_input or (seq_dcnum == 3 and not seq_dBrk)) and SeqBiasOk(seq_dbias)
+    bool   seq_ok  = not seq_classic and not seq_hi and seq_dbias != 0 and not seq_dBrk and (not seq_c3_only_input or seq_dcnum == 3) and SeqBiasOk(seq_dbias)
     string seq_cn  = seq_dcnum == 3 and not seq_dBrk ? 'C3' : 'C' + str.tostring(seq_dcnum)
     for k = 0 to 3
         bool     isA = k < 2
@@ -4035,12 +3969,12 @@ if barstate.islast and seq_show_input and not seq_tf_ok
 if barstate.islast and seq_show_input and seq_tf_ok
     var table seq_tbl = table.new(dash_table_position(seq_vert_input, seq_horz_input), 4, 18, bgcolor = seq_row_bg_input, border_color = seq_lane_bg_input, border_width = 1, frame_color = seq_head_bg_input, frame_width = 1)
     bool   c3      = seq_dcnum == 3 and seq_dbias != 0 and not seq_dBrk
-    bool   c2_ok   = seq_dbias != 0 and (not seq_c3_only_input or c3)
+    bool   c2_ok   = seq_dbias != 0 and not seq_dBrk and (not seq_c3_only_input or c3)
     color  bias_bg = seq_bias == 1 ? seq_bull_input : seq_bias == -1 ? seq_bear_input : seq_wait_input
     string bias_tx = seq_bias == 1 ? '▲ BULLISH' : seq_bias == -1 ? '▼ BEARISH' : '● NO C2 YET'
     string arrow   = seq_dbias == 1 ? '▲ ' : seq_dbias == -1 ? '▼ ' : ''
     // LIVE CANDLE: C3 after a valid C2 close; a forming / pending C2 → WAITING C2
-    string cand_tx = seq_lastC2 ? 'C2 CLOSED' : c3 ? 'C3' : seq_dcnum == 4 or seq_dcnum == 5 ? 'C' + str.tostring(seq_dcnum) : 'WAITING C2'
+    string cand_tx = seq_lastC2 ? 'C2 CLOSED' : c3 ? 'C3' : (seq_dcnum == 4 or seq_dcnum == 5) and not seq_dBrk ? 'C' + str.tostring(seq_dcnum) : 'WAITING C2'
     color  cand_bg = c3 ? seq_cand_c3_input : seq_cand_other_input
     // C2 QUALITY: the valid C2 that just closed / behind the C3 on the chart; otherwise (WAITING C2)
     // the live check of the candle on the chart
