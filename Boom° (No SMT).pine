@@ -1711,6 +1711,7 @@ method DrawSetups(CandleSet candleSet) =>
     bool lbl_bull = na(lbl_best) ? false : lbl_best.is_bullish
     sweep_line_style = LineStyle(settings.sweep_style)
     cisd_line_style = LineStyle(settings.cisd_style)
+    array<Setup> dr = array.new<Setup>()
     if candleSet.setups.size() > 0
         int non_visible_count = 0
         int total_count = 0
@@ -1737,89 +1738,9 @@ method DrawSetups(CandleSet candleSet) =>
                     should_draw := true
                     total_count := total_count + 1
             if should_draw
-                if not setup.is_invalid and settings.proj_show and setup.cisd_triggered and not na(setup.proj_anchor_1) and not na(setup.proj_anchor_0)
-                    proj_label_sz = LabelSize(settings.proj_label_size)
-                    float proj_range = setup.proj_anchor_1 - setup.proj_anchor_0
-                    for dv = 0 to proj_deviations.size() - 1
-                        dev = proj_deviations.get(dv)
-                        float price = na
-                        if setup.is_bullish
-                            price := setup.proj_anchor_0 - (math.abs(proj_range) * dev)
-                        else
-                            price := setup.proj_anchor_0 + (proj_range * dev)
-                        bin.labels.push(label.new(setup.proj_start_idx, price, str.tostring(dev), color = color_transparent, textcolor = settings.proj_color, style = label.style_label_right, size = proj_label_sz))
-                if settings.show_c2_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
-                    lbl_style = setup.is_bullish ? label.style_label_up : label.style_label_down
-                    string lbl_text = setup.is_invalid ? "xC2" : "C2"
-                    color lbl_color = setup.is_invalid ? color.red : settings.c2_color
-                    bin.labels.push(label.new(setup.c2_x, setup.c2_y, lbl_text, color = color_transparent, textcolor = lbl_color, style = lbl_style, size = settings.c2_size))
-                if not setup.is_invalid and settings.sweep_show
-                    bin.lines.push(line.new(setup.sweep_ltf_idx, setup.sweep_price, setup.ltf_end_idx, setup.sweep_price, color = settings.sweep_color, style = sweep_line_style, width = settings.sweep_size))
-                if not setup.is_invalid and settings.model_on_panel
-                    int htf_x1 = na
-                    int htf_x2 = na
-                    for [k, candle] in candleSet.candles
-                        if candle.o_idx == setup.swept_candle_idx
-                            htf_x1 := candle.wick_x
-                        if candle.o_idx == setup.htf_candle_idx
-                            htf_x2 := candle.candle_right
-                    if not na(htf_x1) and not na(htf_x2)
-                        if settings.sweep_show
-                            bin.lines.push(line.new(htf_x1, setup.sweep_price, htf_x2, setup.sweep_price, color = settings.sweep_color, style = sweep_line_style, width = settings.sweep_size))
-                if settings.cisd_show and setup.cisd_triggered and setup.has_cisd
-                    cisd_color = setup.is_bullish ? settings.cisd_bull_color : settings.cisd_bear_color
-                    bin.lines.push(line.new(setup.cisd_start_idx, setup.cisd_level, setup.cisd_end_idx + 1, setup.cisd_level, color = cisd_color, style = cisd_line_style, width = settings.cisd_width))
-                if not setup.is_invalid and setup.is_confirmed and ShowChartEQ()
-                    eq_line_style = LineStyle(prev_eq_style)
-                    if not na(setup.c2_mid) and not na(setup.ez_c3_left_time)
-                        int eq3_right = EntryZoneRight(setup.ez_c3_right_time)
-                        if eq3_right > setup.ez_c3_left_time
-                            bin.lines.push(line.new(setup.ez_c3_left_time, setup.c2_mid, eq3_right, setup.c2_mid, xloc = xloc.bar_time, color = prev_eq_color, style = eq_line_style, width = prev_eq_width))
-                    if not na(setup.c3_mid) and not na(setup.ez_c4_left_time)
-                        int eq4_right = setup.ez_c4_invalid and not na(setup.ez_c4_invalid_time) ? setup.ez_c4_invalid_time : EntryZoneRight(setup.ez_c4_right_time)
-                        color eq4_col = setup.ez_c4_invalid ? color.red : prev_eq_color
-                        if eq4_right > setup.ez_c4_left_time
-                            bin.lines.push(line.new(setup.ez_c4_left_time, setup.c3_mid, eq4_right, setup.c3_mid, xloc = xloc.bar_time, color = eq4_col, style = eq_line_style, width = prev_eq_width))
-                if not setup.is_invalid and setup.is_confirmed and ShowHtfEQ() and settings.model_on_panel
-                    int c2_i = FindCandleIndex(candleSet.candles, setup.htf_candle_idx)
-                    eq_htf_style = LineStyle(prev_eq_style)
-                    if not na(setup.c2_mid) and c2_i > 0
-                        Candle c2_proj = candleSet.candles.get(c2_i)
-                        Candle c3_proj = candleSet.candles.get(c2_i - 1)
-                        int htf_eq3_x1 = c2_proj.wick_x
-                        int htf_eq3_x2 = c3_proj.candle_right + 2
-                        if htf_eq3_x2 > htf_eq3_x1
-                            bin.lines.push(line.new(htf_eq3_x1, setup.c2_mid, htf_eq3_x2, setup.c2_mid, color = prev_eq_color, style = eq_htf_style, width = prev_eq_width))
-                    if not na(setup.c3_mid) and c2_i > 1
-                        Candle c3_proj4 = candleSet.candles.get(c2_i - 1)
-                        Candle c4_proj = candleSet.candles.get(c2_i - 2)
-                        int htf_eq4_x1 = c3_proj4.wick_x
-                        int htf_eq4_x2 = c4_proj.candle_right + 2
-                        color htf_eq4_col = setup.ez_c4_invalid ? color.red : prev_eq_color
-                        if htf_eq4_x2 > htf_eq4_x1
-                            bin.lines.push(line.new(htf_eq4_x1, setup.c3_mid, htf_eq4_x2, setup.c3_mid, color = htf_eq4_col, style = eq_htf_style, width = prev_eq_width))
-                if not setup.is_invalid and settings.entry_zone_show and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.ez_c3_set and not na(setup.ez_c3_left_time)
-                    color ez_col = setup.is_bullish ? settings.entry_zone_bull_color : settings.entry_zone_bear_color
-                    int ez_right = EntryZoneRight(setup.ez_c3_right_time)
-                    bin.boxes.push(box.new(setup.ez_c3_left_time, setup.ez_c3_top, ez_right, setup.ez_c3_bot, xloc = xloc.bar_time, bgcolor = ez_col, border_color = color_transparent, border_width = 0))
-                    if settings.show_c3_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
-                        float ez_lbl_y = setup.is_bullish ? setup.ez_c3_bot : setup.ez_c3_top
-                        int ez_lbl_x = setup.ez_c3_left_time + timeframe.in_seconds() * 1000
-                        lbl_style_ez = setup.is_bullish ? label.style_label_up : label.style_label_down
-                        bin.labels.push(label.new(ez_lbl_x, ez_lbl_y, "C3", xloc = xloc.bar_time, color = color_transparent, textcolor = settings.c2_color, style = lbl_style_ez, size = settings.c2_size))
-                if not setup.is_invalid and settings.entry_zone_show and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.ez_c4_set and not na(setup.ez_c4_left_time)
-                    color ez4_col = setup.is_bullish ? settings.entry_zone_bull_color : settings.entry_zone_bear_color
-                    int ez4_right = EntryZoneRight(setup.ez_c4_right_time)
-                    if not setup.ez_c4_invalid
-                        bin.boxes.push(box.new(setup.ez_c4_left_time, setup.ez_c4_top, ez4_right, setup.ez_c4_bot, xloc = xloc.bar_time, bgcolor = ez4_col, border_color = color_transparent, border_width = 0))
-                    if settings.show_c4_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
-                        float ez4_lbl_y = setup.is_bullish ? setup.ez_c4_bot : setup.ez_c4_top
-                        int ez4_lbl_x = setup.ez_c4_left_time + timeframe.in_seconds() * 1000
-                        string ez4_txt = setup.ez_c4_invalid ? "xC4" : "C4"
-                        color ez4_lbl_col = setup.ez_c4_invalid ? color.red : settings.c2_color
-                        lbl_style_ez4 = setup.is_bullish ? label.style_label_up : label.style_label_down
-                        bin.labels.push(label.new(ez4_lbl_x, ez4_lbl_y, ez4_txt, xloc = xloc.bar_time, color = color_transparent, textcolor = ez4_lbl_col, style = lbl_style_ez4, size = settings.c2_size))
-    // Draw live setups
+                dr.push(setup)
+    // live setups (drawn after the historical ones)
+    int nh = dr.size()
     for is_bull in array.from(false, true)
         bool bias_ok = settings.bias == 'Neutral' or (settings.bias == 'Bullish' and is_bull) or (settings.bias == 'Bearish' and not is_bull)
         if not bias_ok
@@ -1834,29 +1755,32 @@ method DrawSetups(CandleSet candleSet) =>
         else
             if not (setup.is_post_c2 and setup.cisd_triggered)
                 continue
+        dr.push(setup)
+    // one drawing pass: historical setups first, then the live ones
+    for [di, setup] in dr
+        bool live = di >= nh
         if not setup.is_invalid and settings.proj_show and setup.cisd_triggered and not na(setup.proj_anchor_1) and not na(setup.proj_anchor_0)
             proj_label_sz = LabelSize(settings.proj_label_size)
             float proj_range = setup.proj_anchor_1 - setup.proj_anchor_0
             for dv = 0 to proj_deviations.size() - 1
                 dev = proj_deviations.get(dv)
                 float price = na
-                if is_bull
+                if setup.is_bullish
                     price := setup.proj_anchor_0 - (math.abs(proj_range) * dev)
                 else
                     price := setup.proj_anchor_0 + (proj_range * dev)
                 bin.labels.push(label.new(setup.proj_start_idx, price, str.tostring(dev), color = color_transparent, textcolor = settings.proj_color, style = label.style_label_right, size = proj_label_sz))
-        if settings.show_c2_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.is_post_c2 and setup.cisd_triggered
-            lbl_style = is_bull ? label.style_label_up : label.style_label_down
+        if settings.show_c2_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and (not live or (setup.is_post_c2 and setup.cisd_triggered))
+            lbl_style = setup.is_bullish ? label.style_label_up : label.style_label_down
             string lbl_text = setup.is_invalid ? "xC2" : "C2"
             color lbl_color = setup.is_invalid ? color.red : settings.c2_color
             bin.labels.push(label.new(setup.c2_x, setup.c2_y, lbl_text, color = color_transparent, textcolor = lbl_color, style = lbl_style, size = settings.c2_size))
         if not setup.is_invalid and settings.sweep_show
-            int sweep_end = setup.is_post_c2 ? setup.ltf_end_idx : bar_index
-            bin.lines.push(line.new(setup.sweep_ltf_idx, setup.sweep_price, sweep_end, setup.sweep_price, color = settings.sweep_color, style = sweep_line_style, width = settings.sweep_size))
+            bin.lines.push(line.new(setup.sweep_ltf_idx, setup.sweep_price, live and not setup.is_post_c2 ? bar_index : setup.ltf_end_idx, setup.sweep_price, color = settings.sweep_color, style = sweep_line_style, width = settings.sweep_size))
         if not setup.is_invalid and settings.model_on_panel
             int htf_x1 = na
             int htf_x2 = na
-            for [j, candle] in candleSet.candles
+            for [k, candle] in candleSet.candles
                 if candle.o_idx == setup.swept_candle_idx
                     htf_x1 := candle.wick_x
                 if candle.o_idx == setup.htf_candle_idx
@@ -1864,56 +1788,66 @@ method DrawSetups(CandleSet candleSet) =>
             if not na(htf_x1) and not na(htf_x2)
                 if settings.sweep_show
                     bin.lines.push(line.new(htf_x1, setup.sweep_price, htf_x2, setup.sweep_price, color = settings.sweep_color, style = sweep_line_style, width = settings.sweep_size))
-        if not setup.is_invalid and settings.early_cisd_show and setup.has_cisd and not setup.cisd_triggered
+        if live and not setup.is_invalid and settings.early_cisd_show and setup.has_cisd and not setup.cisd_triggered
             early_cisd_line_style = LineStyle(settings.early_cisd_style)
             int early_end = na(setup.cisd_end_idx) ? bar_index : setup.cisd_end_idx
             bin.lines.push(line.new(setup.cisd_start_idx, setup.cisd_level, early_end, setup.cisd_level, color = settings.early_cisd_color, style = early_cisd_line_style, width = settings.cisd_width))
             if settings.show_c2_lbl
-                lbl_style_early = is_bull ? label.style_label_up : label.style_label_down
-                bin.labels.push(label.new(early_end, setup.cisd_level, is_bull ? '+CISD' : '-CISD', color = color_transparent, textcolor = settings.early_cisd_color, style = lbl_style_early, size = settings.c2_size))
+                lbl_style_early = setup.is_bullish ? label.style_label_up : label.style_label_down
+                bin.labels.push(label.new(early_end, setup.cisd_level, setup.is_bullish ? '+CISD' : '-CISD', color = color_transparent, textcolor = settings.early_cisd_color, style = lbl_style_early, size = settings.c2_size))
         if settings.cisd_show and setup.cisd_triggered and setup.has_cisd
-            cisd_color = is_bull ? settings.cisd_bull_color : settings.cisd_bear_color
+            cisd_color = setup.is_bullish ? settings.cisd_bull_color : settings.cisd_bear_color
             bin.lines.push(line.new(setup.cisd_start_idx, setup.cisd_level, setup.cisd_end_idx + 1, setup.cisd_level, color = cisd_color, style = cisd_line_style, width = settings.cisd_width))
         if not setup.is_invalid and setup.is_confirmed and ShowChartEQ()
-            eq_line_style_live = LineStyle(prev_eq_style)
+            eq_line_style = LineStyle(prev_eq_style)
             if not na(setup.c2_mid) and not na(setup.ez_c3_left_time)
-                int eq3_right_live = EntryZoneRight(setup.ez_c3_right_time)
-                if eq3_right_live > setup.ez_c3_left_time
-                    bin.lines.push(line.new(setup.ez_c3_left_time, setup.c2_mid, eq3_right_live, setup.c2_mid, xloc = xloc.bar_time, color = prev_eq_color, style = eq_line_style_live, width = prev_eq_width))
+                int eq3_right = EntryZoneRight(setup.ez_c3_right_time)
+                if eq3_right > setup.ez_c3_left_time
+                    bin.lines.push(line.new(setup.ez_c3_left_time, setup.c2_mid, eq3_right, setup.c2_mid, xloc = xloc.bar_time, color = prev_eq_color, style = eq_line_style, width = prev_eq_width))
             if not na(setup.c3_mid) and not na(setup.ez_c4_left_time)
-                int eq4_right_live = setup.ez_c4_invalid and not na(setup.ez_c4_invalid_time) ? setup.ez_c4_invalid_time : EntryZoneRight(setup.ez_c4_right_time)
-                color eq4_col_live = setup.ez_c4_invalid ? color.red : prev_eq_color
-                if eq4_right_live > setup.ez_c4_left_time
-                    bin.lines.push(line.new(setup.ez_c4_left_time, setup.c3_mid, eq4_right_live, setup.c3_mid, xloc = xloc.bar_time, color = eq4_col_live, style = eq_line_style_live, width = prev_eq_width))
+                int eq4_right = setup.ez_c4_invalid and not na(setup.ez_c4_invalid_time) ? setup.ez_c4_invalid_time : EntryZoneRight(setup.ez_c4_right_time)
+                color eq4_col = setup.ez_c4_invalid ? color.red : prev_eq_color
+                if eq4_right > setup.ez_c4_left_time
+                    bin.lines.push(line.new(setup.ez_c4_left_time, setup.c3_mid, eq4_right, setup.c3_mid, xloc = xloc.bar_time, color = eq4_col, style = eq_line_style, width = prev_eq_width))
         if not setup.is_invalid and setup.is_confirmed and ShowHtfEQ() and settings.model_on_panel
-            int c2_i_live = FindCandleIndex(candleSet.candles, setup.htf_candle_idx)
-            eq_htf_style_live = LineStyle(prev_eq_style)
-            if not na(setup.c2_mid) and c2_i_live > 0
-                Candle c2_proj_l = candleSet.candles.get(c2_i_live)
-                Candle c3_proj_l = candleSet.candles.get(c2_i_live - 1)
-                int htf_eq3_x1_l = c2_proj_l.wick_x
-                int htf_eq3_x2_l = c3_proj_l.candle_right + 2
-                if htf_eq3_x2_l > htf_eq3_x1_l
-                    bin.lines.push(line.new(htf_eq3_x1_l, setup.c2_mid, htf_eq3_x2_l, setup.c2_mid, color = prev_eq_color, style = eq_htf_style_live, width = prev_eq_width))
-            if not na(setup.c3_mid) and c2_i_live > 1
-                Candle c3_proj4_l = candleSet.candles.get(c2_i_live - 1)
-                Candle c4_proj_l = candleSet.candles.get(c2_i_live - 2)
-                int htf_eq4_x1_l = c3_proj4_l.wick_x
-                int htf_eq4_x2_l = c4_proj_l.candle_right + 2
-                color htf_eq4_col_l = setup.ez_c4_invalid ? color.red : prev_eq_color
-                if htf_eq4_x2_l > htf_eq4_x1_l
-                    bin.lines.push(line.new(htf_eq4_x1_l, setup.c3_mid, htf_eq4_x2_l, setup.c3_mid, color = htf_eq4_col_l, style = eq_htf_style_live, width = prev_eq_width))
+            int c2_i = FindCandleIndex(candleSet.candles, setup.htf_candle_idx)
+            eq_htf_style = LineStyle(prev_eq_style)
+            if not na(setup.c2_mid) and c2_i > 0
+                Candle c2_proj = candleSet.candles.get(c2_i)
+                Candle c3_proj = candleSet.candles.get(c2_i - 1)
+                int htf_eq3_x1 = c2_proj.wick_x
+                int htf_eq3_x2 = c3_proj.candle_right + 2
+                if htf_eq3_x2 > htf_eq3_x1
+                    bin.lines.push(line.new(htf_eq3_x1, setup.c2_mid, htf_eq3_x2, setup.c2_mid, color = prev_eq_color, style = eq_htf_style, width = prev_eq_width))
+            if not na(setup.c3_mid) and c2_i > 1
+                Candle c3_proj4 = candleSet.candles.get(c2_i - 1)
+                Candle c4_proj = candleSet.candles.get(c2_i - 2)
+                int htf_eq4_x1 = c3_proj4.wick_x
+                int htf_eq4_x2 = c4_proj.candle_right + 2
+                color htf_eq4_col = setup.ez_c4_invalid ? color.red : prev_eq_color
+                if htf_eq4_x2 > htf_eq4_x1
+                    bin.lines.push(line.new(htf_eq4_x1, setup.c3_mid, htf_eq4_x2, setup.c3_mid, color = htf_eq4_col, style = eq_htf_style, width = prev_eq_width))
         if not setup.is_invalid and settings.entry_zone_show and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.ez_c3_set and not na(setup.ez_c3_left_time)
-            color ez_col_live = is_bull ? settings.entry_zone_bull_color : settings.entry_zone_bear_color
-            int ez_right_live = EntryZoneRight(setup.ez_c3_right_time)
-            bin.boxes.push(box.new(setup.ez_c3_left_time, setup.ez_c3_top, ez_right_live, setup.ez_c3_bot, xloc = xloc.bar_time, bgcolor = ez_col_live, border_color = color_transparent, border_width = 0))
+            color ez_col = setup.is_bullish ? settings.entry_zone_bull_color : settings.entry_zone_bear_color
+            int ez_right = EntryZoneRight(setup.ez_c3_right_time)
+            bin.boxes.push(box.new(setup.ez_c3_left_time, setup.ez_c3_top, ez_right, setup.ez_c3_bot, xloc = xloc.bar_time, bgcolor = ez_col, border_color = color_transparent, border_width = 0))
             if settings.show_c3_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
-                float ez_lbl_y_live = is_bull ? setup.ez_c3_bot : setup.ez_c3_top
-                int ez_lbl_x_live = setup.ez_c3_left_time + timeframe.in_seconds() * 1000
-                lbl_style_ez_live = is_bull ? label.style_label_up : label.style_label_down
-                bin.labels.push(label.new(ez_lbl_x_live, ez_lbl_y_live, "C3", xloc = xloc.bar_time, color = color_transparent, textcolor = settings.c2_color, style = lbl_style_ez_live, size = settings.c2_size))
-    candleSet
-
+                float ez_lbl_y = setup.is_bullish ? setup.ez_c3_bot : setup.ez_c3_top
+                int ez_lbl_x = setup.ez_c3_left_time + timeframe.in_seconds() * 1000
+                lbl_style_ez = setup.is_bullish ? label.style_label_up : label.style_label_down
+                bin.labels.push(label.new(ez_lbl_x, ez_lbl_y, "C3", xloc = xloc.bar_time, color = color_transparent, textcolor = settings.c2_color, style = lbl_style_ez, size = settings.c2_size))
+        if not live and not setup.is_invalid and settings.entry_zone_show and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull)) and setup.ez_c4_set and not na(setup.ez_c4_left_time)
+            color ez4_col = setup.is_bullish ? settings.entry_zone_bull_color : settings.entry_zone_bear_color
+            int ez4_right = EntryZoneRight(setup.ez_c4_right_time)
+            if not setup.ez_c4_invalid
+                bin.boxes.push(box.new(setup.ez_c4_left_time, setup.ez_c4_top, ez4_right, setup.ez_c4_bot, xloc = xloc.bar_time, bgcolor = ez4_col, border_color = color_transparent, border_width = 0))
+            if settings.show_c4_lbl and c_lbl_chart and (not c_lbl_latest_input or (setup.htf_candle_idx == lbl_idx and setup.is_bullish == lbl_bull))
+                float ez4_lbl_y = setup.is_bullish ? setup.ez_c4_bot : setup.ez_c4_top
+                int ez4_lbl_x = setup.ez_c4_left_time + timeframe.in_seconds() * 1000
+                string ez4_txt = setup.ez_c4_invalid ? "xC4" : "C4"
+                color ez4_lbl_col = setup.ez_c4_invalid ? color.red : settings.c2_color
+                lbl_style_ez4 = setup.is_bullish ? label.style_label_up : label.style_label_down
+                bin.labels.push(label.new(ez4_lbl_x, ez4_lbl_y, ez4_txt, xloc = xloc.bar_time, color = color_transparent, textcolor = ez4_lbl_col, style = lbl_style_ez4, size = settings.c2_size))
 // IC-CISD — drawn from the persistent registry (dots survive setup history limits)
 DrawICCisd() =>
     if settings.ic_cisd_show and ic_registry.size() > 0
@@ -2063,14 +1997,14 @@ if barstate.islast or barstate.isrealtime
 // ============================================================================
 // Sequence table — engine
 // ----------------------------------------------------------------------------
-// Each lane is updated on the chart from 1-minute bars (chart bars on a 1m chart, otherwise the
-// 1m candles inside each chart bar); its sweep-TF and execution candles are built on absolute
+// Each lane is updated on the chart from its entry-TF candles (the chart's bars when the chart is not above
+// the entry TF, otherwise the entry-TF candles inside each chart bar; no such data → sweep only); its sweep-TF and execution candles are built on absolute
 // clock windows (every 5m: 04:00–04:05, 04:05–04:10 …; every 15m / 30m / 1H likewise):
 //   Bias   : a sequence candle is a confirmed C2 when, at its close, it took the previous candle's
 //            low and closed back above it (bullish; bearish = mirror), as the HTF panel labels it.
 //            Took both sides → direction of its colour (green bull, red bear). It only counts with
 //            its LTF CISD (valid); bias changes only on a valid C2 close.
-//   Sweep  : a 1m bar trades through the low (bullish) / high (bearish) of the
+//   Sweep  : a fed bar trades through the low (bullish) / high (bearish) of the
 //            sweep-TF candle immediately before the current one (its "C1"). C1 shifts every new
 //            sweep-TF candle (C3 opens 6:00 → C1 = 5–6 1H; no sweep by 7:00 → C1 = 6–7 1H …).
 //            Older sweep-TF candles never count. Once C1 is swept the CISD is tracked across
@@ -2108,6 +2042,15 @@ type SeqZ
     array<float> bot
     array<int>   dir     // 1 = BISI, -1 = SIBI
     array<int>   t       // time the FVG was confirmed
+    // the POI-TF candle being built from chart bars, and the two closed before it
+    int   cT  = na
+    float cH  = na
+    float cL  = na
+    float cC  = na
+    float pH1 = na
+    float pL1 = na
+    float pH2 = na
+    float pL2 = na
 
 method drop(SeqZ z, int i) =>
     z.top.remove(i)
@@ -2116,36 +2059,48 @@ method drop(SeqZ z, int i) =>
     z.t.remove(i)
     z
 
-// Runs inside request.security on the POI timeframe; bar [1] = the candle that just closed
-SeqZones() =>
-    var SeqZ z = SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>())
-    float c1 = close[1]
-    float h1 = high[1]
-    float l1 = low[1]
-    float h3 = high[3]
-    float l3 = low[3]
-    int n = z.top.size()
-    if n > 0 and not na(l1)
-        for i = n - 1 to 0
-            if z.dir.get(i) == 1 ? l1 < z.bot.get(i) : h1 > z.top.get(i)
-                z.drop(i)
-    bool bu = l1 > h3
-    bool be = h1 < l3
-    if bu or be
-        z.top.push(bu ? l1 : l3)
-        z.bot.push(bu ? h3 : h1)
-        z.dir.push(bu ? 1 : -1)
-        z.t.push(time)
-        if z.top.size() > 15
-            int   fi = 0
-            float fd = -1.0
-            for [i, tp] in z.top
-                float dd = math.max(c1 - tp, z.bot.get(i) - c1, 0.0)
-                if dd > fd
-                    fd := dd
-                    fi := i
-            z.drop(fi)
-    [z.top, z.bot, z.dir, z.t]
+// POI zones of one timeframe built from the chart's bars (like the HTF panels), tT = time(POI TF) on this
+// bar. When a POI-TF candle closes: a wick that fully fills a zone removes it (BISI: low below its bottom,
+// SIBI: high above its top), then the FVG of the last three closed candles (BISI / SIBI) is added. Up to
+// 15 zones (the one farthest from price goes first).
+method zfeed(SeqZ z, int tT) =>
+    if not na(tT) and tT != z.cT
+        if not na(z.cT)
+            float h1 = z.cH
+            float l1 = z.cL
+            int n = z.top.size()
+            if n > 0
+                for i = n - 1 to 0
+                    if z.dir.get(i) == 1 ? l1 < z.bot.get(i) : h1 > z.top.get(i)
+                        z.drop(i)
+            bool bu = l1 > z.pH2
+            bool be = h1 < z.pL2
+            if bu or be
+                z.top.push(bu ? l1 : z.pL2)
+                z.bot.push(bu ? z.pH2 : h1)
+                z.dir.push(bu ? 1 : -1)
+                z.t.push(tT)
+                if z.top.size() > 15
+                    int   fi = 0
+                    float fd = -1.0
+                    for [i, tp] in z.top
+                        float dd = math.max(z.cC - tp, z.bot.get(i) - z.cC, 0.0)
+                        if dd > fd
+                            fd := dd
+                            fi := i
+                    z.drop(fi)
+            z.pH2 := z.pH1
+            z.pL2 := z.pL1
+            z.pH1 := h1
+            z.pL1 := l1
+        z.cT := tT
+        z.cH := high
+        z.cL := low
+    else
+        z.cH := math.max(z.cH, high)
+        z.cL := math.min(z.cL, low)
+    z.cC := close
+    z
 
 // Nearest zone of side dir that was already active at t1 and overlaps the C1–C2 range bot–top:
 // [distance to the sweep price p (0 = p inside it), index]; distance na = none
@@ -2196,14 +2151,14 @@ type SeqTrack
     int   xT  = na       // open time of the execution candle that made the sweep extreme
     bool  lk  = false    // C2 tracker: the CISD window into the next candle has ended
 
-// One lane's state, updated on the chart from 1-minute bars (no request.security state).
+// One lane's state, updated on the chart from fed bars (no request.security state).
 // Windows are absolute clock windows from the bar time: every 5m (04:00–04:05, 04:05–04:10 … 04:55–05:00),
 // every 3m (04:00–04:03, 04:03–04:06 …), every 15m / 30m / 1H likewise; the sequence candle (1H / 4H)
 // comes from the chart.
 type SeqLaneSt
     int      sMs    = na   // sweep-TF length (ms)
     int      eMs    = na   // execution-TF length (ms)
-    int      lastT  = na   // last 1m bar processed
+    int      lastT  = na   // last bar processed
     int      dId    = na   // sequence candle (open time)
     int      sId    = na   // current sweep-TF window
     float    sH     = na
@@ -2288,18 +2243,19 @@ method proc(SeqLaneSt st) =>
         st.eProc := true
     st
 
-// Feed one bar (t = open time). closed = the bar has closed. Boom: 1m bars (ew = na, clock windows);
+// Feed one bar (t = open time). closed = the bar has closed. ew = na: 1m bars, clock windows;
 // Classic: ew = open time of the execution candle the bar belongs to, ewEnd = the bar ends it.
-method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool closed, int ew, bool ewEnd) =>
+// so = sweep only (no execution-TF data): the execution candles are skipped
+method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool closed, int ew, bool ewEnd, bool so) =>
     if not na(t) and (na(st.lastT) or t >= st.lastT)
         st.lastT := t
         st.fx    := not na(ew)
         int sid = st.sSeq ? dT : math.floor(t / st.sMs)
         int eid = st.fx ? ew : math.floor(t / st.eMs)
         // k = 0: a new execution window started while the previous candle was not processed yet
-        // k = 1: this closed 1m bar ends its execution window
+        // k = 1: this closed bar ends its execution window
         for k = 0 to 1
-            if k == 0 ? not na(st.eId) and eid != st.eId : closed and (st.fx ? ewEnd : math.floor((t + 60000) / st.eMs) != eid)
+            if not so and (k == 0 ? not na(st.eId) and eid != st.eId : closed and (st.fx ? ewEnd : math.floor((t + 60000) / st.eMs) != eid))
                 st.proc()
             if k == 0
                 // every new sequence candle starts clean
@@ -2310,15 +2266,16 @@ method upd(SeqLaneSt st, int dT, int t, float o, float h, float l, float c, bool
                     st.dId  := dT
                     st.bu  := SeqTrack.new()
                     st.be  := SeqTrack.new()
-                if na(st.eId) or eid != st.eId
-                    st.eId   := eid
-                    st.eO    := o
-                    st.eH    := h
-                    st.eL    := l
-                    st.eProc := false
-                st.eH := math.max(st.eH, h)
-                st.eL := math.min(st.eL, l)
-                st.eC := c
+                if not so
+                    if na(st.eId) or eid != st.eId
+                        st.eId   := eid
+                        st.eO    := o
+                        st.eH    := h
+                        st.eL    := l
+                        st.eProc := false
+                    st.eH := math.max(st.eH, h)
+                    st.eL := math.min(st.eL, l)
+                    st.eC := c
                 if na(st.sId) or sid != st.sId
                     st.pH     := st.sH
                     st.pL     := st.sL
@@ -2369,12 +2326,26 @@ SeqBars(bool own, string tf) =>
 
 // Feed bars to a lane. fx: execution windows from the feed (window = ewT, or each bar itself when
 // ewT is na; ewEnd = the chart bar ends it); else 1m clock windows.
-method feed(SeqLaneSt st, int dT, array<int> t, array<float> o, array<float> h, array<float> l, array<float> c, bool fx, int ewT, bool ewEnd) =>
+method feed(SeqLaneSt st, int dT, array<int> t, array<float> o, array<float> h, array<float> l, array<float> c, bool fx, int ewT, bool ewEnd, bool so) =>
     int n = t.size()
     if n > 0
         for i = 0 to n - 1
-            st.upd(dT, t.get(i), o.get(i), h.get(i), l.get(i), c.get(i), i < n - 1 or barstate.isconfirmed, fx ? (na(ewT) ? t.get(i) : ewT) : na, fx and ewEnd)
+            st.upd(dT, t.get(i), o.get(i), h.get(i), l.get(i), c.get(i), i < n - 1 or barstate.isconfirmed, fx ? (na(ewT) ? t.get(i) : ewT) : na, fx and ewEnd, so)
     st
+
+// Boom lane on its entry timeframe etf: the chart's bars when the chart is not above etf, else the etf
+// candles inside each chart bar. No etf data → sweep only, from the chart's bars when the chart is not
+// above the sweep timeframe. Returns [sweep tracked, entry tracked] (else the table shows '--').
+SeqLaneFeed(SeqLaneSt ln, int dT, string etf, int ewT, int ewC) =>
+    bool own = timeframe.in_seconds() <= timeframe.in_seconds(etf)
+    [bt, bo, bh, bl, bc] = SeqBars(own, etf)
+    bool full = bt.size() > 0
+    bool swok = full or timeframe.in_seconds() * 1000 <= ln.sMs
+    if full
+        ln.feed(dT, bt, bo, bh, bl, bc, true, own ? ewT : na, not own or ewC == time_close, false)
+    else if swok
+        ln.feed(dT, array.from(time), array.from(open), array.from(high), array.from(low), array.from(close), true, na, false, true)
+    [swok, full]
 
 // Middle column: sweep row = the C1 candle (open time) that was taken, or the C1 being watched;
 // entry row = time the CISD happened (close of the execution candle that confirmed it)
@@ -2429,28 +2400,42 @@ SeqLaneSt seq_lb  = seq_lanes.get(1)
 SeqLaneSt seq_lc2 = seq_lanes.get(2)
 int seq_dT = time(seq_dir_tf)
 // C2 tracker feed (Boom + Classic): its CISD timeframe — the chart's bars when the chart is not above
-// it, else the CISD-TF candles inside each chart bar. Boom lanes A / B: 1m bars (up to a 1H chart).
+// it, else the CISD-TF candles inside each chart bar. Boom lanes A / B: their entry TF (up to a 1H chart).
 bool   seq_lanes_on = not seq_classic and not seq_hi
 string seq_ftf  = seq_c2_exec_tf
 bool   seq_fch  = timeframe.in_seconds() <= timeframe.in_seconds(seq_ftf)
 string seq_ewtf = seq_fch ? seq_ftf : timeframe.period
 int    seq_ewT  = time(seq_ewtf)
 int    seq_ewC  = time_close(seq_ewtf)
-// POI zones from each POI timeframe's own candles (closed candles only → no repaint)
-[pz1t, pz1b, pz1d, pz1z] = request.security(syminfo.tickerid, seq_poi_tf1, SeqZones(), lookahead = barmerge.lookahead_on)
-[pz2t, pz2b, pz2d, pz2z] = request.security(syminfo.tickerid, seq_poi_tf2, SeqZones(), lookahead = barmerge.lookahead_on)
-[pz3t, pz3b, pz3d, pz3z] = request.security(syminfo.tickerid, seq_poi_tf3, SeqZones(), lookahead = barmerge.lookahead_on)
-[pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
-array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
+// lane entry windows on the chart's bars (chart not above the entry TF)
+string seq_awtf = timeframe.in_seconds() <= timeframe.in_seconds(seq_a_exec_tf) ? seq_a_exec_tf : timeframe.period
+string seq_bwtf = timeframe.in_seconds() <= timeframe.in_seconds(seq_b_exec_tf) ? seq_b_exec_tf : timeframe.period
+int    seq_aW   = time(seq_awtf)
+int    seq_aWc  = time_close(seq_awtf)
+int    seq_bW   = time(seq_bwtf)
+int    seq_bWc  = time_close(seq_bwtf)
+var array<bool> seq_lnOk = array.from(true, true, true, true)   // A sweep, A entry, B sweep, B entry tracked
+// POI zones from each POI timeframe's candles, built from the chart's bars (closed candles only → no
+// repaint, no data requests); a POI timeframe below the chart has no zones
+var array<SeqZ> seq_poi = array.from(SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()))
+// time() only on a POI timeframe not below the chart
+PoiTf(string tf) =>
+    timeframe.in_seconds(tf) >= timeframe.in_seconds() ? tf : timeframe.period
+array<int> seq_poiT = array.from(time(PoiTf(seq_poi_tf1)), time(PoiTf(seq_poi_tf2)), time(PoiTf(seq_poi_tf3)), time(PoiTf(seq_poi_tf4)))
+array<string> seq_poiF = array.from(seq_poi_tf1, seq_poi_tf2, seq_poi_tf3, seq_poi_tf4)
+if seq_tf_ok and not seq_hi
+    for [k, z] in seq_poi
+        if k < seq_poi_n and timeframe.in_seconds() <= timeframe.in_seconds(seq_poiF.get(k))
+            z.zfeed(seq_poiT.get(k))
 if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // C2 tracker: the chart's bar, or the C2 CISD-TF candles inside it (no 1m data needed)
     [ft, fo, fh, fl, fc] = SeqBars(seq_fch, seq_ftf)
-    seq_lc2.feed(seq_dT, ft, fo, fh, fl, fc, true, seq_fch ? seq_ewT : na, not seq_fch or seq_ewC == time_close)
-    // Boom lanes A / B: 1-minute bars (the chart's own bar on a 1m chart, else the 1m candles inside each chart bar)
+    seq_lc2.feed(seq_dT, ft, fo, fh, fl, fc, true, seq_fch ? seq_ewT : na, not seq_fch or seq_ewC == time_close, false)
+    // Boom lanes A / B, each on its entry timeframe (no 1m data needed on charts at or below it)
     if seq_lanes_on
-        [mt, mo, mh, ml, mc] = SeqBars(timeframe.in_seconds() <= 60, '1')
-        seq_la.feed(seq_dT, mt, mo, mh, ml, mc, false, na, false)
-        seq_lb.feed(seq_dT, mt, mo, mh, ml, mc, false, na, false)
+        [aSw, aEn] = SeqLaneFeed(seq_la, seq_dT, seq_a_exec_tf, seq_aW, seq_aWc)
+        [bSw, bEn] = SeqLaneFeed(seq_lb, seq_dT, seq_b_exec_tf, seq_bW, seq_bWc)
+        seq_lnOk := array.from(aSw, aEn, bSw, bEn)
 
 // ── Setup probability score of a C2 (dir) with C1 = c1H/c1L opened at c1T, C2 = c2H/c2L at c2T ──
 // No-SMT version: no correlated symbol → no SMT / SMT-Fill
@@ -2708,8 +2693,8 @@ if barstate.islast and dash_show_input
 // ============================================================================
 // Sequence table — drawing (last bar)
 // ============================================================================
-SeqStatus(bool prevDone, bool done) =>
-    string txt = done ? 'DONE' : prevDone ? 'WATCHING' : 'NOT YET'
+SeqStatus(bool prevDone, bool done, bool ok) =>
+    string txt = not ok ? '--' : done ? 'DONE' : prevDone ? 'WATCHING' : 'NOT YET'
     color  col = done ? seq_done_input : prevDone ? seq_watch_input : seq_wait_input
     string ico = done ? '✓ ' : prevDone ? '◔ ' : '·  '
     [txt, col, ico]
@@ -2782,10 +2767,10 @@ if barstate.islast and seq_show_input and seq_tf_ok
     bool   a_en    = a_sw and seq_a_entry
     bool   b_sw    = c2_ok and seq_b_sweep
     bool   b_en    = b_sw and seq_b_entry
-    [a1t, a1c, a1i] = SeqStatus(c2_ok, a_sw)
-    [a2t, a2c, a2i] = SeqStatus(a_sw, a_en)
-    [b1t, b1c, b1i] = SeqStatus(c2_ok, b_sw)
-    [b2t, b2c, b2i] = SeqStatus(b_sw, b_en)
+    [a1t, a1c, a1i] = SeqStatus(c2_ok, a_sw, seq_lnOk.get(0))
+    [a2t, a2c, a2i] = SeqStatus(a_sw, a_en, seq_lnOk.get(1))
+    [b1t, b1c, b1i] = SeqStatus(c2_ok, b_sw, seq_lnOk.get(2))
+    [b2t, b2c, b2i] = SeqStatus(b_sw, b_en, seq_lnOk.get(3))
     int    done_n  = (a_sw ? 1 : 0) + (a_en ? 1 : 0) + (b_sw ? 1 : 0) + (b_en ? 1 : 0)
     color  bar_col = done_n >= 4 ? seq_done_input : done_n == 3 ? seq_watch_input : seq_bear_input
     string as_lbl  = PanelLabel(seq_a_sweep_tf)
