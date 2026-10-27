@@ -261,7 +261,7 @@ string group_label              = "Label Settings  ━━━━━━━━━�
 alerts_enabled_input            = input.bool(true, 'Alerts?', group=group_general, tooltip='To turn on the alerts, follow these steps:\n\n1) Make sure that the Alerts? toggle is ON.\n2) Right-click on the indicator on your chart.\n3) Click Add Alert on this indicator.\n4) Choose the Alert Name and confirm by clicking Create.\n\nNOTE: if you change any Settings, delete and re-create the alerts!')
 settings.sweep_history          := input.int(4, 'History        ', minval=0, group=group_general, inline='history')
 settings.sweep_visible_only     := input.bool(true, '', tooltip='Number of historical setups to show:\n\n☑ ON: Setups on visible HTF candles always shown. This count adds older setups that scrolled away.\n\n☐ OFF: Only show this many setups total.', inline='history', group=group_general)
-seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 5m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 1H model 15m/1H/4H/D, 4H model 1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
+seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 3m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 1H model 15m/1H/4H/D, 4H model 1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
 bool seq_classic                = seq_mode_input == 'Classic'
 fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
 custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
@@ -272,7 +272,7 @@ settings.bias                   := input.string('Neutral', 'Bias', options=['Neu
 string group_alerts             = "Alerts  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 alert_c2_input                   = input.bool(true, 'C2 Closed + LTF CISD', group=group_alerts, active=alerts_enabled_input, tooltip='Valid C2 close (C2 + its LTF CISD), also when its CISD confirms in C3. Classic + Boom.')
 alert_c1_input                   = input.bool(true, 'C3: C1 Sweep', group=group_alerts, active=alerts_enabled_input and not seq_classic, tooltip='Boom only. C1 sweep inside C3: 1H model 15m, 4H model 1H / 30m.')
-alert_entry_input                = input.bool(true, 'C3: Entry CISD', group=group_alerts, active=alerts_enabled_input and not seq_classic, tooltip='Boom only. Entry CISD after the C1 sweep: 1H model 5m / 1m, 4H model 5m / 3m.')
+alert_entry_input                = input.bool(true, 'C3: Entry CISD', group=group_alerts, active=alerts_enabled_input and not seq_classic, tooltip='Boom only. Entry CISD after the C1 sweep: 1H model 3m / 1m, 4H model 5m / 3m.')
 
 getHigherTF() =>
     switch timeframe.period
@@ -507,7 +507,7 @@ dash_bg_color_input              = input.color(#c2baae, 'Background', group = gr
 // Sequence table (4h / 1h PO3 sequence) — inputs
 // ============================================================================
 string group_seq                 = "Sequence Table  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-seq_show_input                   = input.bool(true, 'Show Sequence', group = group_seq, tooltip = 'Boom: 1m chart → 1H sequence (A: 15m → 5m, B: 15m → 1m)\nOther charts → 4H sequence (A: 1H → 5m, B: 30m → 3m)\nClassic: Fractal HTF, C2 CISD on the Fractal LTF, no lanes.\nBias = latest valid C2 close (C2 + its LTF CISD).')
+seq_show_input                   = input.bool(true, 'Show Sequence', group = group_seq, tooltip = 'Boom: 1m chart → 1H sequence (A: 15m → 3m, B: 15m → 1m)\nOther charts → 4H sequence (A: 1H → 5m, B: 30m → 3m)\nClassic: Fractal HTF, C2 CISD on the Fractal LTF, no lanes.\nBias = latest valid C2 close (C2 + its LTF CISD).')
 seq_c3_only_input                = input.bool(true, 'Conditions: C3 Only', group = group_seq, active = seq_show_input and not seq_classic, tooltip = 'On: lanes count only in C3. Off: in every candle after the C2.')
 seq_vert_input                   = input.string('Bottom', '', options = ['Top', 'Middle', 'Bottom'], inline = 'seq_loc', group = group_seq, active = seq_show_input)
 seq_horz_input                   = input.string('Right', '', options = ['Left', 'Center', 'Right'], inline = 'seq_loc', group = group_seq, active = seq_show_input)
@@ -2028,7 +2028,7 @@ if barstate.islast or barstate.isrealtime
 bool   seq_is_1h      = timeframe.in_seconds() == 60
 string seq_dir_tf     = model_tf
 string seq_a_sweep_tf = seq_is_1h ? '15' : '60'
-string seq_a_exec_tf  = '5'
+string seq_a_exec_tf  = seq_is_1h ? '3' : '5'
 string seq_b_sweep_tf = seq_is_1h ? '15' : '30'
 string seq_b_exec_tf  = seq_is_1h ? '1' : '3'
 
