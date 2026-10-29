@@ -261,7 +261,7 @@ string group_label              = "Label Settings  ━━━━━━━━━�
 alerts_enabled_input            = input.bool(true, 'Alerts?', group=group_general, tooltip='To turn on the alerts, follow these steps:\n\n1) Make sure that the Alerts? toggle is ON.\n2) Right-click on the indicator on your chart.\n3) Click Add Alert on this indicator.\n4) Choose the Alert Name and confirm by clicking Create.\n\nNOTE: if you change any Settings, delete and re-create the alerts!')
 settings.sweep_history          := input.int(4, 'History        ', minval=0, group=group_general, inline='history')
 settings.sweep_visible_only     := input.bool(true, '', tooltip='Number of historical setups to show:\n\n☑ ON: Setups on visible HTF candles always shown. This count adds older setups that scrolled away.\n\n☐ OFF: Only show this many setups total.', inline='history', group=group_general)
-seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 3m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 1H model 15m/1H/4H/D, 4H model 1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
+seq_mode_input                  = input.string('Boom', 'Sequence', options=['Boom', 'Classic'], group=group_general, tooltip='Boom: fixed model. 1m chart → 1H, other charts below 4H → 4H.\n• C2 valid = C2 + LTF CISD (1H → 5m, 4H → 15m)\n• C3 SETUP lanes: C1 sweep → entry CISD (1H: 15m → 3m / 1m, 4H: 1H → 5m, 30m → 3m)\n• POI: 15m/1H/4H/D\n• Alerts: C2 close + C3 sweep / entry\n\nClassic: model = Fractal pairing.\n• C2 valid = C2 + CISD on the Fractal LTF\n• No C3 SETUP lanes\n• POI by pairing (15m–1H model 15m/1H/4H, 4H 1H/4H/D, D/W/M own TF)\n• Alerts: C2 close only\n\nAbove a 1H chart: no C3 lanes; C2 QUALITY = CISD only.')
 bool seq_classic                = seq_mode_input == 'Classic'
 fractal_mode_input              = input.string('Automatic','Fractal', options=['Automatic', 'Custom', '1m-15m', '3m-30m', '5m-1H', '15m-4H', '1H-1D', '4H-1W', '1D-1M'], group=group_general, active=seq_classic, tooltip='Classic only. LTF-HTF pairing of the model.\nAutomatic: chart TF → next HTF.\nCustom: the two timeframes below.')
 custom_ltf_input                = input.timeframe('5', 'Custom Fractal  ', inline='custom_tf', group=group_general, active=seq_classic and fractal_mode_input == 'Custom')
@@ -2042,15 +2042,6 @@ type SeqZ
     array<float> bot
     array<int>   dir     // 1 = BISI, -1 = SIBI
     array<int>   t       // time the FVG was confirmed
-    // the POI-TF candle being built from chart bars, and the two closed before it
-    int   cT  = na
-    float cH  = na
-    float cL  = na
-    float cC  = na
-    float pH1 = na
-    float pL1 = na
-    float pH2 = na
-    float pL2 = na
 
 method drop(SeqZ z, int i) =>
     z.top.remove(i)
@@ -2059,48 +2050,36 @@ method drop(SeqZ z, int i) =>
     z.t.remove(i)
     z
 
-// POI zones of one timeframe built from the chart's bars (like the HTF panels), tT = time(POI TF) on this
-// bar. When a POI-TF candle closes: a wick that fully fills a zone removes it (BISI: low below its bottom,
-// SIBI: high above its top), then the FVG of the last three closed candles (BISI / SIBI) is added. Up to
-// 15 zones (the one farthest from price goes first).
-method zfeed(SeqZ z, int tT) =>
-    if not na(tT) and tT != z.cT
-        if not na(z.cT)
-            float h1 = z.cH
-            float l1 = z.cL
-            int n = z.top.size()
-            if n > 0
-                for i = n - 1 to 0
-                    if z.dir.get(i) == 1 ? l1 < z.bot.get(i) : h1 > z.top.get(i)
-                        z.drop(i)
-            bool bu = l1 > z.pH2
-            bool be = h1 < z.pL2
-            if bu or be
-                z.top.push(bu ? l1 : z.pL2)
-                z.bot.push(bu ? z.pH2 : h1)
-                z.dir.push(bu ? 1 : -1)
-                z.t.push(tT)
-                if z.top.size() > 15
-                    int   fi = 0
-                    float fd = -1.0
-                    for [i, tp] in z.top
-                        float dd = math.max(z.cC - tp, z.bot.get(i) - z.cC, 0.0)
-                        if dd > fd
-                            fd := dd
-                            fi := i
-                    z.drop(fi)
-            z.pH2 := z.pH1
-            z.pL2 := z.pL1
-            z.pH1 := h1
-            z.pL1 := l1
-        z.cT := tT
-        z.cH := high
-        z.cL := low
-    else
-        z.cH := math.max(z.cH, high)
-        z.cL := math.min(z.cL, low)
-    z.cC := close
-    z
+// Runs inside request.security on the POI timeframe; bar [1] = the candle that just closed
+SeqZones() =>
+    var SeqZ z = SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>())
+    float c1 = close[1]
+    float h1 = high[1]
+    float l1 = low[1]
+    float h3 = high[3]
+    float l3 = low[3]
+    int n = z.top.size()
+    if n > 0 and not na(l1)
+        for i = n - 1 to 0
+            if z.dir.get(i) == 1 ? l1 < z.bot.get(i) : h1 > z.top.get(i)
+                z.drop(i)
+    bool bu = l1 > h3
+    bool be = h1 < l3
+    if bu or be
+        z.top.push(bu ? l1 : l3)
+        z.bot.push(bu ? h3 : h1)
+        z.dir.push(bu ? 1 : -1)
+        z.t.push(time)
+        if z.top.size() > 15
+            int   fi = 0
+            float fd = -1.0
+            for [i, tp] in z.top
+                float dd = math.max(c1 - tp, z.bot.get(i) - c1, 0.0)
+                if dd > fd
+                    fd := dd
+                    fi := i
+            z.drop(fi)
+    [z.top, z.bot, z.dir, z.t]
 
 // Nearest zone of side dir that was already active at t1 and overlaps the C1–C2 range bot–top:
 // [distance to the sweep price p (0 = p inside it), index]; distance na = none
@@ -2118,7 +2097,7 @@ method near(SeqZ z, int dir, float top, float bot, int t1, float p) =>
     [best, bi]
 
 // Score of a C2: flags 0 LTF CISD inside C2 (must-have), 1 C2 within 75% of C1's range,
-// 2 POI or SMT-Fill, 3 SMT on C2, 4 POI + SMT, 5 SMT-Fill; plus the POI zone used
+// 2 POI, 3 SMT on C2, 4 POI + SMT; plus the POI zone used
 type SeqSc
     array<bool> f
     int   pTf  = -1      // POI timeframe index (-1 = no zone)
@@ -2127,7 +2106,7 @@ type SeqSc
     float pBot = na
 
 SeqScNew() =>
-    SeqSc.new(array.new<bool>(6, false))
+    SeqSc.new(array.new<bool>(5, false))
 
 // Direction of a C2 for a sequence candle (o/h/l/c) against the candle before it (pcH/pcL), same
 // rule as the HTF panel C-labels: took the previous low and closed back above it (bullish) / took
@@ -2368,7 +2347,7 @@ int SEQ_BOOM = 100
 // ── Lanes + C2 tracker + POI zones, fed every chart bar ──
 string seq_c2_exec_tf = seq_classic ? getFractalLTF() : seq_is_1h ? '5' : '15'     // C2's paired LTF CISD (Boom: 1H → 5m, 4H → 15m; Classic: Fractal LTF)
 // POI timeframes, the model's own first (it wins a tie). Boom: 1H sequence 1H / 15m / 4H / D,
-// 4H sequence 4H / 1H / D. Classic: 15m / 30m / 1H model 15m / 1H / 4H, 4H model 1H / 4H / D,
+// 4H sequence 4H / 1H / 15m / D. Classic: 15m / 30m / 1H model 15m / 1H / 4H, 4H model 1H / 4H / D,
 // D / W / M model its own timeframe.
 int    seq_ms         = timeframe.in_seconds(seq_dir_tf)
 bool   seq_tf_ok      = timeframe.in_seconds() >= 60 and seq_ms > timeframe.in_seconds()  // model above the chart
@@ -2378,10 +2357,10 @@ bool   seq_cl_4h      = seq_classic and seq_ms == 14400
 bool   seq_cl_one     = seq_classic and not seq_cl_low and not seq_cl_4h
 string seq_poi_tf1    = seq_cl_one ? seq_dir_tf : seq_cl_low ? (seq_ms == 3600 ? '60' : '15') : seq_cl_4h ? '240' : seq_is_1h ? '60' : '240'
 string seq_poi_tf2    = seq_cl_one ? seq_dir_tf : seq_cl_low ? (seq_ms == 3600 ? '15' : '60') : seq_cl_4h ? '60' : seq_is_1h ? '15' : '60'
-string seq_poi_tf3    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : seq_cl_4h ? 'D' : seq_is_1h ? '240' : 'D'
+string seq_poi_tf3    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : seq_cl_4h ? 'D' : seq_is_1h ? '240' : '15'
 string seq_poi_tf4    = seq_cl_one ? seq_dir_tf : seq_cl_low ? '240' : 'D'
-int    seq_poi_n      = seq_cl_one ? 1 : seq_classic or not seq_is_1h ? 3 : 4
-string seq_poi_all    = seq_cl_one ? PanelLabel(seq_dir_tf) : seq_cl_low ? '15m/1H/4H' : seq_cl_4h or not seq_is_1h ? '1H/4H/D' : '15m/1H/4H/D'
+int    seq_poi_n      = seq_cl_one ? 1 : seq_classic ? 3 : 4
+string seq_poi_all    = seq_cl_one ? PanelLabel(seq_dir_tf) : seq_cl_low ? '15m/1H/4H' : seq_cl_4h ? '1H/4H/D' : '15m/1H/4H/D'
 if seq_hi or not seq_tf_ok
     seq_poi_tf1 := timeframe.period
     seq_poi_tf2 := timeframe.period
@@ -2415,18 +2394,16 @@ int    seq_aWc  = time_close(seq_awtf)
 int    seq_bW   = time(seq_bwtf)
 int    seq_bWc  = time_close(seq_bwtf)
 var array<bool> seq_lnOk = array.from(true, true, true, true)   // A sweep, A entry, B sweep, B entry tracked
-// POI zones from each POI timeframe's candles, built from the chart's bars (closed candles only → no
-// repaint, no data requests); a POI timeframe below the chart has no zones
-var array<SeqZ> seq_poi = array.from(SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()), SeqZ.new(array.new<float>(), array.new<float>(), array.new<int>(), array.new<int>()))
-// time() only on a POI timeframe not below the chart
-PoiTf(string tf) =>
-    timeframe.in_seconds(tf) >= timeframe.in_seconds() ? tf : timeframe.period
-array<int> seq_poiT = array.from(time(PoiTf(seq_poi_tf1)), time(PoiTf(seq_poi_tf2)), time(PoiTf(seq_poi_tf3)), time(PoiTf(seq_poi_tf4)))
-array<string> seq_poiF = array.from(seq_poi_tf1, seq_poi_tf2, seq_poi_tf3, seq_poi_tf4)
-if seq_tf_ok and not seq_hi
-    for [k, z] in seq_poi
-        if k < seq_poi_n and timeframe.in_seconds() <= timeframe.in_seconds(seq_poiF.get(k))
-            z.zfeed(seq_poiT.get(k))
+// POI zones from each POI timeframe's own candles (closed candles only → no repaint)
+[pz1t, pz1b, pz1d, pz1z] = request.security(syminfo.tickerid, seq_poi_tf1, SeqZones(), lookahead = barmerge.lookahead_on)
+[pz2t, pz2b, pz2d, pz2z] = request.security(syminfo.tickerid, seq_poi_tf2, SeqZones(), lookahead = barmerge.lookahead_on)
+[pz3t, pz3b, pz3d, pz3z] = request.security(syminfo.tickerid, seq_poi_tf3, SeqZones(), lookahead = barmerge.lookahead_on)
+[pz4t, pz4b, pz4d, pz4z] = request.security(syminfo.tickerid, seq_poi_tf4, SeqZones(), lookahead = barmerge.lookahead_on)
+array<SeqZ> seq_poi = array.from(SeqZ.new(pz1t, pz1b, pz1d, pz1z), SeqZ.new(pz2t, pz2b, pz2d, pz2z), SeqZ.new(pz3t, pz3b, pz3d, pz3z), SeqZ.new(pz4t, pz4b, pz4d, pz4z))
+// a POI timeframe the platform returns no data for → 'platform err' on the POI row
+bool seq_poiErr = false
+for [k, z] in seq_poi
+    seq_poiErr := seq_poiErr or (k < seq_poi_n and na(z.top))
 if (seq_show_input or alerts_enabled_input) and seq_tf_ok
     // C2 tracker: the chart's bar, or the C2 CISD-TF candles inside it (no 1m data needed)
     [ft, fo, fh, fl, fc] = SeqBars(seq_fch, seq_ftf)
@@ -2438,9 +2415,6 @@ if (seq_show_input or alerts_enabled_input) and seq_tf_ok
         seq_lnOk := array.from(aSw, aEn, bSw, bEn)
 
 // ── Setup probability score of a C2 (dir) with C1 = c1H/c1L opened at c1T, C2 = c2H/c2L at c2T ──
-// No-SMT version: no correlated symbol → no SMT / SMT-Fill
-SeqSmtChk(int dir, int c1T, int c2T) =>
-    [false, false]
 SeqScore(int dir, float c1H, float c1L, int c1T, float c2H, float c2L, int c2T) =>
     bool bull = dir == 1
     SeqTrack tr = seq_lc2.dId == c2T ? (bull ? seq_lc2.bu : seq_lc2.be) : seq_lc2.pdId == c2T ? (bull ? seq_lc2.pbu : seq_lc2.pbe) : na
@@ -2462,9 +2436,9 @@ SeqScore(int dir, float c1H, float c1L, int c1T, float c2H, float c2L, int c2T) 
                 sc.pDir := dir
                 sc.pTop := z.top.get(i)
                 sc.pBot := z.bot.get(i)
-    [fFill, fSmt] = SeqSmtChk(dir, c1T, c2T)
-    bool fP = sc.pTf >= 0 or fFill
-    sc.f := array.from(fC, f75, fP, fSmt, fP and fSmt, fFill)
+    // No-SMT version: no correlated symbol → no SMT
+    bool fP = sc.pTf >= 0
+    sc.f := array.from(fC, f75, fP, false, false)
     sc
 
 // above a 1H chart only the CISD (+ SMT on C2) rows count
@@ -2711,14 +2685,9 @@ SeqRow(table t, int r, array<int> mr, string t0, color k0, color g0, string t1, 
     mr.push(r * 100 + (step ? 23 : 13))
     r + 1
 
-// POI row: the zone nearest the sweep (TF + BISI / SIBI) and / or SMT fill, else the POI timeframes watched
+// POI row: the zone nearest the sweep (TF + BISI / SIBI), else 'platform err' (no POI data), else the POI timeframes watched
 SeqPoiTxt(SeqSc s) =>
-    string h = ''
-    if s.pTf >= 0
-        h := PanelLabel(array.from(seq_poi_tf1, seq_poi_tf2, seq_poi_tf3, seq_poi_tf4).get(s.pTf)) + (s.pDir == 1 ? ' BISI' : ' SIBI')
-    if s.f.get(5)
-        h += (h == '' ? '' : ' + ') + 'SMT fill'
-    'POI (' + (h != '' ? h : seq_poi_all + ' FVG') + ')'
+    'POI (' + (s.pTf >= 0 ? PanelLabel(array.from(seq_poi_tf1, seq_poi_tf2, seq_poi_tf3, seq_poi_tf4).get(s.pTf)) + (s.pDir == 1 ? ' BISI' : ' SIBI') : seq_poiErr ? 'platform err' : seq_poi_all + ' FVG') + ')'
 
 // Grade of a score: text + colour
 SeqGrade(SeqSc s, int p) =>
